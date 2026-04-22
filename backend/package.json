@@ -1,0 +1,16 @@
+{
+  "name": "helmpilot-backend",
+  "version": "0.1.0",
+  "description": "helmpilot backend in ClojureScript (nbb)",
+  "scripts": {
+    "start": "nbb -cp src main.cljs",
+    "dev": "nbb -cp src dev.cljs"
+  },
+  "dependencies": {
+    "i2c-bus": "^5.2.3",
+    "nbb": "^1.2.190",
+    "nmea-simple": "^3.3.0",
+    "serialport": "^12.0.0",
+    "ws": "^8.20.0"
+  }
+}

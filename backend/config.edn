@@ -1,0 +1,40 @@
+{;; ============================================================
+ ;; Pypilot Backend — Configuration
+ ;; ============================================================
+
+ ;; --- Serveur TCP ----------------------------------------
+ ;; Port du protocole pypilot (clients, frontend)
+ :server
+ {:port    23322
+  :ws-port 23323}
+
+ ;; --- Source IMU -----------------------------------------
+ ;; :boatimu → MPU-9250 via I2C (simulation si pas de matériel)
+ ;; :signalk  → serveur Signal K sur le réseau
+ ;; :both     → les deux ; Signal K prend le dessus si connecté
+ :imu
+ {:source :boatimu   ; :boatimu | :signalk | :both
+  :rate   20}        ; Hz
+
+ ;; --- Signal K -------------------------------------------
+ ;; Serveur Signal K avec GPS et accéléromètre
+ :signalk
+ {:enabled true
+  :host    "192.168.40.100"   ; ou adresse IP : "192.168.1.x"
+  :port    3000}
+
+ ;; --- Servo Arduino (Phase 3) ----------------------------
+ :servo
+ {:port "/dev/ttyUSB0"
+  :baud 38400}
+
+ ;; --- Gains PID pilote "basic" ---------------------------
+ ;; Valeurs initiales — modifiables en live via TCP
+ ;; (ap.pilot.basic.P, .D, etc.) et persistées dans ~/.pypilot/pypilot.conf
+ :gains
+ {:P  0.003    ; proportionnel erreur de cap
+  :I  0.0      ; intégrale (laisser à 0 pour commencer)
+  :D  0.09     ; dérivée — amortit le taux de virage
+  :DD 0.075    ; dérivée seconde — amortit l'accélération
+  :PR 0.005    ; sqrt(|erreur|) — correction non-linéaire
+  :FF 0.6}}    ; feed-forward taux de changement cap commandé

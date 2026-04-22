@@ -1,0 +1,212 @@
+/* ============================================================
+   HelmPilot — Dark Marine Theme
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:          #0b1017;
+  --bg2:         #141c26;
+  --bg3:         #1d2a3a;
+  --border:      #2a3f58;
+  --text:        #c8d8e8;
+  --text-dim:    #607080;
+  --accent:      #00aaff;
+  --accent2:     #00ffcc;
+  --danger:      #ff4455;
+  --warn:        #ffaa00;
+  --ok:          #00cc66;
+  --btn-bg:      #1d2a3a;
+  --btn-hover:   #253548;
+  --btn-active:  #00aaff22;
+  --ap-on:       #00cc66;
+  --ap-off:      #607080;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Courier New', monospace;
+  font-size: 15px;
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+/* ---- loader ---- */
+.loader {
+  width: 36px; height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- status bar ---- */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.status-bar .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--ap-off);
+  flex-shrink: 0;
+}
+.status-bar .dot.ok    { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.status-bar .dot.warn  { background: var(--warn); }
+.status-bar .dot.err   { background: var(--danger); }
+.status-bar .badge {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: bold;
+}
+.status-bar .badge.sk { background: #0066cc44; color: var(--accent); border: 1px solid #0066cc; }
+.status-bar .spacer { flex: 1; }
+.status-bar .voltage { color: var(--text); font-weight: bold; }
+
+/* ---- compass section ---- */
+.compass-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 0 8px;
+  gap: 8px;
+}
+
+.compass-wrap {
+  position: relative;
+  width: 260px;
+  height: 260px;
+}
+
+.compass-wrap svg {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 0 18px #00aaff33);
+}
+
+/* heading display */
+.heading-display {
+  font-size: 48px;
+  font-weight: bold;
+  letter-spacing: 4px;
+  color: var(--text);
+  text-align: center;
+  text-shadow: 0 0 20px var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- sensor grid ---- */
+.sensor-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.sensor-cell {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 4px;
+  text-align: center;
+}
+.sensor-cell .label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.sensor-cell .value {
+  font-size: 16px;
+  font-weight: bold;
+  color: var(--accent2);
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.sensor-cell .value.warn { color: var(--warn); }
+.sensor-cell .value.err  { color: var(--danger); }
+
+/* ---- controls ---- */
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+}
+
+.btn {
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 10px 0;
+  min-width: 52px;
+  transition: background 0.1s, border-color 0.1s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.btn:hover { background: var(--btn-hover); border-color: var(--accent); }
+.btn:active { background: var(--btn-active); }
+
+.btn-ap {
+  min-width: 90px;
+  font-size: 15px;
+  letter-spacing: 1px;
+  border-color: var(--ap-off);
+  color: var(--ap-off);
+}
+.btn-ap.on {
+  border-color: var(--ap-on);
+  color: var(--ap-on);
+  box-shadow: 0 0 12px #00cc6644;
+}
+
+/* ---- target heading row ---- */
+.target-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px 12px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.target-row .tval {
+  font-size: 20px;
+  font-weight: bold;
+  color: var(--accent);
+  min-width: 42px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.target-row .err-val {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.target-row .err-val.warn { color: var(--warn); }

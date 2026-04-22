@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm show:*)",
+      "Bash(timeout 5 npx nbb -cp src main.cljs)",
+      "Bash(npx nbb:*)",
+      "Read(//tmp/**)",
+      "Bash(ls /dev/i2c*)",
+      "Bash(find /home/guy/Documents/pilot/pypilot -name arduino_servo* -o -name arduinoservo*)",
+      "Bash(find /home/guy/Documents/pilot/pypilot -name crc*)"
+    ]
+  }
+}
