@@ -31,6 +31,7 @@
   (v/sensor-value!   "signalk.heading"    false :directional true)
   (v/sensor-value!   "signalk.pitch"      false)
   (v/sensor-value!   "signalk.roll"       false)
+  (v/sensor-value!   "signalk.heel"       false)
   (v/sensor-value!   "signalk.headingrate" false)
   ;; GPS
   (v/sensor-value!   "gps.lat"   false :fmt "%.6f")
@@ -53,7 +54,9 @@
          :rate-of-turn     nil    ; °/s
          ;; Pour headingraterate
          :last-headingrate  0
-         :last-rate-t       0}))
+         :last-rate-t       0
+         ;; Gîte filtrée (IIR lent du roll)
+         :heel              0}))
 
 ;; ---------------------------------------------------------------------------
 ;; Traitement des deltas
@@ -63,13 +66,26 @@
   (let [h (mod h 360)]
     (if (< h 0) (+ h 360) h)))
 
+(defn- set-attitude-component! [component value]
+  (swap! state update :attitude #(assoc (or % {}) component value)))
+
 (defn- dispatch-path! [path value]
+  (js/console.log (str "[SignalK] Received path: " path " = " (pr-str value)))
   (case path
     "navigation.attitude"
     (swap! state assoc :attitude
            {:roll  (.-roll  value)
             :pitch (.-pitch value)
             :yaw   (.-yaw   value)})
+
+    "navigation.attitude.roll"
+    (set-attitude-component! :roll value)
+
+    "navigation.attitude.pitch"
+    (set-attitude-component! :pitch value)
+
+    "navigation.attitude.yaw"
+    (set-attitude-component! :yaw value)
 
     "navigation.headingMagnetic"
     (swap! state assoc :heading-mag (normalize-heading (* value RAD2DEG)))
@@ -95,7 +111,7 @@
 (defn- build-imu-data []
   ;; Heading : préférer headingMagnetic, sinon headingTrue, sinon attitude.yaw
   (let [{:keys [attitude heading-mag heading-true rate-of-turn
-                last-headingrate last-rate-t]} @state
+                last-headingrate last-rate-t heel]} @state
         now       (js/Date.now)
         heading   (or heading-mag
                       heading-true
@@ -109,18 +125,22 @@
         dt               (/ (- now last-rate-t) 1000.0)
         headingraterate  (if (and (pos? dt) (< dt 0.5))
                            (/ (- headingrate last-headingrate) dt)
-                           0)]
+                           0)
+        ;; Gîte : IIR très lent du roll (identique à boatimu)
+        new-heel         (+ (* 0.03 roll) (* 0.97 heel))]
 
     (swap! state assoc
            :last-headingrate headingrate
-           :last-rate-t      now)
+           :last-rate-t      now
+           :heel             new-heel)
 
     (when heading
       {:heading         (normalize-heading heading)
        :headingrate     headingrate
        :headingraterate headingraterate
        :pitch           pitch
-       :roll            roll})))
+       :roll            roll
+       :heel            new-heel})))
 
 (defn- process-message! [raw-msg]
   (try
@@ -134,12 +154,12 @@
         ;; Émettre les données synthétisées si on a un heading
         (when-let [on-data (:on-data-fn @state)]
           (when-let [imu (build-imu-data)]
-            (when (:heading imu)
-              (v/update-value! "signalk.heading"     (:heading     imu))
-              (v/update-value! "signalk.headingrate" (:headingrate imu))
-              (v/update-value! "signalk.pitch"       (:pitch       imu))
-              (v/update-value! "signalk.roll"        (:roll        imu))
-              (on-data imu))))))
+            (v/update-value! "signalk.heading"     (:heading     imu))
+            (v/update-value! "signalk.headingrate" (:headingrate imu))
+            (v/update-value! "signalk.pitch"       (:pitch       imu))
+            (v/update-value! "signalk.roll"        (:roll        imu))
+            (v/update-value! "signalk.heel"        (:heel        imu))
+            (on-data imu)))))
     (catch :default e
       (js/console.error "[SignalK] Erreur parse:" (.-message e)))))
 
@@ -149,12 +169,12 @@
 
 (declare connect!)
 
-(defn- schedule-reconnect! [on-data-fn]
+(defn- schedule-reconnect! [on-data-fn cfg]
   (when-not (:reconnect-timer @state)
     (let [t (js/setTimeout
              (fn []
                (swap! state assoc :reconnect-timer nil)
-               (connect! on-data-fn))
+               (connect! on-data-fn cfg))
              5000)]
       (swap! state assoc :reconnect-timer t))))
 
@@ -162,22 +182,18 @@
   (js/JSON.stringify
    (clj->js
     {:context "vessels.self"
-     :subscribe
-     [{:path "navigation.attitude"             :period 100 :policy "instant" :minPeriod 50}
-      {:path "navigation.headingMagnetic"       :period 100 :policy "instant" :minPeriod 100}
-      {:path "navigation.headingTrue"           :period 100 :policy "instant" :minPeriod 100}
-      {:path "navigation.rateOfTurn"            :period 100 :policy "instant" :minPeriod 100}
-      {:path "navigation.position"              :period 1000}
-      {:path "navigation.speedOverGround"       :period 1000}
-      {:path "navigation.courseOverGroundTrue"  :period 1000}]})))
+     :subscribe [{:path "*"}]})))
 
-(defn connect! [on-data-fn]
-  (let [host (or (v/get-value "signalk.host") "localhost")
-        port (or (v/get-value "signalk.port") 3000)
-        url  (str "ws://" host ":" port "/signalk/v1/stream?subscribe=none")]
+(defn connect! [on-data-fn cfg]
+  (let [{:keys [host port url scheme]} cfg
+        host   (or host (v/get-value "signalk.host") "localhost")
+        port   (or port (v/get-value "signalk.port") 3000)
+        scheme (or scheme "ws")
+        url    (or url (str scheme "://" host ":" port "/signalk/v1/stream?subscribe=none"))]
     (try
       (let [WS (js/require "ws")
-            ws (new WS url #js {:handshakeTimeout 10000})]
+            ws (new WS url #js {:handshakeTimeout 10000
+                                :rejectUnauthorized false})]
         (swap! state assoc :ws ws :on-data-fn on-data-fn)
 
         (.on ws "open"
@@ -195,7 +211,7 @@
                (js/console.log (str "[SignalK] Déconnecté (" code ") — reconnexion dans 5 s"))
                (v/update-value! "signalk.connected" false)
                (swap! state assoc :ws nil)
-               (schedule-reconnect! on-data-fn)))
+               (schedule-reconnect! on-data-fn cfg)))
 
         (.on ws "error"
              (fn [e]
@@ -222,7 +238,7 @@
        (js/console.log
         (str "[SignalK] Démarrage → "
              (v/get-value "signalk.host") ":" (v/get-value "signalk.port")))
-       (connect! on-data-fn))
+       (connect! on-data-fn cfg))
      (js/console.log "[SignalK] Désactivé (signalk.enabled=false)"))))
 
 (defn stop! []

@@ -141,7 +141,7 @@
                     (let [n (js/parseFloat v)]
                       (when-not (js/isNaN n) n))
                     :else v)]
-      (when (and coerced (valid? info coerced))
+      (when (and (not (nil? coerced)) (valid? info coerced))
         (swap! registry assoc-in [name :value] coerced)
         (when-let [hook @on-change!]
           (hook name coerced))))))

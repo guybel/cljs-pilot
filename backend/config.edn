@@ -13,7 +13,7 @@
  ;; :signalk  → serveur Signal K sur le réseau
  ;; :both     → les deux ; Signal K prend le dessus si connecté
  :imu
- {:source :boatimu   ; :boatimu | :signalk | :both
+ {:source :signalk   ; :boatimu | :signalk | :both
   :rate   20}        ; Hz
 
  ;; --- Signal K -------------------------------------------
@@ -21,7 +21,8 @@
  :signalk
  {:enabled true
   :host    "192.168.40.100"   ; ou adresse IP : "192.168.1.x"
-  :port    3000}
+  :port    3443
+  :url "wss://192.168.40.100:3443/signalk/v1/stream"}
 
  ;; --- Servo Arduino (Phase 3) ----------------------------
  :servo

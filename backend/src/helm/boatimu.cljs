@@ -186,7 +186,9 @@
   [on-data-fn]
   (register-values!)
   (let [wt     (js/require "worker_threads")
-        worker (new (.-Worker wt) (str (.cwd js/process) "/imu_worker.js"))]
+        path   (js/require "path")
+        worker-path (.resolve path (.cwd js/process) "imu_worker.js")
+        worker (new (.-Worker wt) worker-path)]
     (.on worker "message"
          (fn [raw-msg]
            (let [msg (js->clj raw-msg :keywordize-keys true)]

@@ -20,7 +20,7 @@
 (defonce ^:private loaded (atom defaults))
 
 (defn load!
-  "Lit config.edn depuis le répertoire courant.
+  "Lit config.edn depuis le répertoire backend/.
    Merge section par section avec les défauts.
    Retourne la config complète."
   []

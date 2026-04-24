@@ -8,8 +8,16 @@
 ;; ---------------------------------------------------------------------------
 
 (def ws-url
-  (let [host (.-hostname js/location)]
-    (str "ws://" host ":23323")))
+  (let [host (or (let [h (.-hostname js/location)]
+                      (when (and h (pos? (.-length h))) h))
+                 "localhost")
+        scheme (if (or (= (.-protocol js/location) "https:")
+                      (= (.-protocol js/location) "wss:"))
+                 "wss:"
+                 "ws:")
+        url (str scheme "//" host ":23323")]
+    (js/console.log "[UI] WebSocket URL:" url)
+    url))
 
 ;; ---------------------------------------------------------------------------
 ;; État global
@@ -47,6 +55,10 @@
 (defn- fmt-1 [v]
   (if (nil? v) "--.-" (.toFixed v 1)))
 
+(defn- parse-num [v]
+  (let [n (js/parseFloat v)]
+    (when-not (js/isNaN n) n)))
+
 (defn- resolv [a]
   (loop [a a]
     (cond (> a  180) (recur (- a 360))
@@ -63,39 +75,42 @@
       (let [k (.substring line 0 idx)
             v (.substring line (inc idx))]
         (case k
-          "imu.heading_lowpass"
-          (swap! state assoc :heading (js/parseFloat v))
+          "signalk.heading"
+          (when-let [n (parse-num v)]
+            (swap! state assoc :heading n))
 
           "ap.heading_command"
-          (swap! state assoc :heading-cmd (js/parseFloat v))
+          (when-let [n (parse-num v)]
+            (swap! state assoc :heading-cmd n))
 
           "ap.enabled"
           (swap! state assoc :ap-enabled (= v "true"))
 
           "ap.heading_error"
-          (swap! state assoc :heading-err (js/parseFloat v))
+          (when-let [n (parse-num v)]
+            (swap! state assoc :heading-err n))
 
-          "imu.pitch"
-          (swap! state assoc :pitch (js/parseFloat v))
+          "signalk.pitch"
+          (when-let [n (parse-num v)]
+            (swap! state assoc :pitch n))
 
-          "imu.roll"
-          (swap! state assoc :roll (js/parseFloat v))
+          "signalk.roll"
+          (when-let [n (parse-num v)]
+            (swap! state assoc :roll n))
 
-          "imu.heel"
-          (swap! state assoc :heel (js/parseFloat v))
+          "signalk.heel"
+          (when-let [n (parse-num v)]
+            (swap! state assoc :heel n))
 
           "servo.voltage"
-          (when (not= v "false")
-            (swap! state assoc :voltage (js/parseFloat v)))
+          (when-let [n (parse-num v)]
+            (swap! state assoc :voltage n))
 
           "servo.connected"
           (swap! state assoc :servo-conn (= v "true"))
 
           "signalk.connected"
           (swap! state assoc :sk-conn (= v "true"))
-
-          "imu.frequency"
-          (swap! state assoc :imu-freq (js/parseFloat v))
 
           nil)))))
 
@@ -109,42 +124,46 @@
 
 (defn- subscribe! []
   (send! (watch-msg
-          {"imu.heading_lowpass" 0
+          {"signalk.heading"     0
            "ap.heading_command"  0
            "ap.enabled"          0
            "ap.heading_error"    0
-           "imu.pitch"           0.5
-           "imu.roll"            0.5
-           "imu.heel"            0.5
+           "signalk.pitch"       0.5
+           "signalk.roll"        0.5
+           "signalk.heel"        0.5
            "servo.voltage"       1
            "servo.connected"     0
-           "signalk.connected"   0
-           "imu.frequency"       2})))
+           "signalk.connected"   0})))
 
 (defn connect! []
   (let [ws (js/WebSocket. ws-url)
         buf (atom "")]
     (set! (.-onopen ws)
           (fn [_]
+            (js/console.log "[UI] WS connected to" ws-url)
             (swap! state assoc :connected true :ws ws)
             (subscribe!)))
     (set! (.-onmessage ws)
           (fn [evt]
-            (swap! buf str (.-data evt))
-            (loop []
-              (let [s @buf
-                    i (.indexOf s "\n")]
-                (when (>= i 0)
-                  (let [line (.substring s 0 i)]
-                    (reset! buf (.substring s (inc i)))
-                    (parse-line! line)
-                    (recur)))))))
+            (let [data (.-data evt)]
+              (js/console.log "[UI] WS recv:" data)
+              (swap! buf str data)
+              (loop []
+                (let [s @buf
+                      i (.indexOf s "\n")]
+                  (when (>= i 0)
+                    (let [line (.substring s 0 i)]
+                      (reset! buf (.substring s (inc i)))
+                      (parse-line! line)
+                      (recur))))))))
     (set! (.-onclose ws)
           (fn [_]
+            (js/console.log "[UI] WS closed")
             (swap! state assoc :connected false :ws nil)
             (js/setTimeout connect! 3000)))
     (set! (.-onerror ws)
-          (fn [_]
+          (fn [evt]
+            (js/console.error "[UI] WS error:" evt)
             (.close ws)))))
 
 ;; ---------------------------------------------------------------------------

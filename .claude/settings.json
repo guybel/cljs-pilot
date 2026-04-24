@@ -7,7 +7,8 @@
       "Read(//tmp/**)",
       "Bash(ls /dev/i2c*)",
       "Bash(find /home/guy/Documents/pilot/pypilot -name arduino_servo* -o -name arduinoservo*)",
-      "Bash(find /home/guy/Documents/pilot/pypilot -name crc*)"
+      "Bash(find /home/guy/Documents/pilot/pypilot -name crc*)",
+      "Bash(git -C /home/guy/Documents/pilot/cljs-pilot status --short)"
     ]
   }
 }
