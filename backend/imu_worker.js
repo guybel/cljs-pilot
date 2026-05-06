@@ -1,5 +1,5 @@
 'use strict';
-// IMU Worker — lit le MPU-9250 via I2C (synchrone) et envoie les données
+// IMU Worker — lit l'ICM-20948 via I2C (synchrone) et envoie les données
 // fusionnées (quaternion Mahony) au thread principal via postMessage.
 //
 // Si I2C n'est pas disponible, bascule automatiquement en simulation.
@@ -7,26 +7,32 @@
 const { parentPort } = require('worker_threads');
 
 // ---------------------------------------------------------------------------
-// Constantes MPU-9250 / AK8963
+// Constantes ICM-20948 / AK09916
 // ---------------------------------------------------------------------------
-const MPU_ADDR     = 0x68;
-const AK8963_ADDR  = 0x0C;
+const ICM_ADDR     = 0x68;
+const AK09916_ADDR = 0x0C;
+const WHO_AM_I_VAL = 0xEA;
 
-// Registres MPU-9250
-const REG_SMPLRT_DIV   = 0x19;
-const REG_CONFIG        = 0x1A;
-const REG_GYRO_CONFIG   = 0x1B;
-const REG_ACCEL_CONFIG  = 0x1C;
-const REG_INT_PIN_CFG   = 0x37;
-const REG_USER_CTRL     = 0x6A;
-const REG_PWR_MGMT_1    = 0x6B;
-const REG_ACCEL_XOUT_H  = 0x3B; // 14 bytes : accel(6) + temp(2) + gyro(6)
+// Sélecteur de banque (présent dans toutes les banques)
+const REG_BANK_SEL = 0x7F;
+
+// Banque 0
+const B0_WHO_AM_I    = 0x00;
+const B0_USER_CTRL   = 0x03;
+const B0_PWR_MGMT_1  = 0x06;
+const B0_PWR_MGMT_2  = 0x07;
+const B0_INT_PIN_CFG = 0x0F;
+const B0_ACCEL_XOUT_H = 0x2D; // 12 octets : accel(6) + gyro(6)
+
+// Banque 2
+const B2_GYRO_CONFIG_1   = 0x01;
+const B2_ACCEL_CONFIG    = 0x14;
 
 // Échelles par défaut
-const ACCEL_SCALE = 16384.0;             // ±2g → 1 g = 16384 LSB
-const GYRO_SCALE  = 131.0;              // ±250 °/s → 1 °/s = 131 LSB (deg)
+const ACCEL_SCALE = 16384.0;            // ±2g → 1 g = 16384 LSB
+const GYRO_SCALE  = 131.0;              // ±250 °/s → 1 °/s = 131 LSB
 const DEG2RAD     = Math.PI / 180.0;
-const MAG_SCALE   = 4912.0 / 32760.0;  // µT par LSB (16-bit AK8963)
+const MAG_SCALE   = 0.15;               // µT par LSB (AK09916, 16-bit signé)
 
 // ---------------------------------------------------------------------------
 // État filtre Mahony
@@ -94,11 +100,20 @@ function mahony(ax, ay, az, gx, gy, gz, mx, my, mz, dt) {
 }
 
 // ---------------------------------------------------------------------------
-// Lecture MPU-9250
+// Lecture ICM-20948
 // ---------------------------------------------------------------------------
 let bus = null;
 let useRealIMU = false;
 let magReady = false;
+
+function sleepMs(ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { /* busy wait */ }
+}
+
+function selectBank(b) {
+  bus.writeByteSync(ICM_ADDR, REG_BANK_SEL, (b & 0x03) << 4);
+}
 
 function busInit() {
   const fs = require('fs');
@@ -110,33 +125,54 @@ function busInit() {
     fs.accessSync('/dev/i2c-1', fs.constants.R_OK | fs.constants.W_OK);
   } catch (e) {
     parentPort.postMessage({ type: 'status', msg: `Pas d'accès R/W à /dev/i2c-1 (${e.message}) — mode simulation` });
-    return; // ne charge pas i2c-bus
+    return;
   }
 
   try {
     const i2c = require('i2c-bus');
     bus = i2c.openSync(1);
 
-    // Réveil MPU-9250
-    bus.writeByteSync(MPU_ADDR, REG_PWR_MGMT_1,   0x00); // wake up
-    bus.writeByteSync(MPU_ADDR, REG_ACCEL_CONFIG,  0x00); // ±2g
-    bus.writeByteSync(MPU_ADDR, REG_GYRO_CONFIG,   0x00); // ±250 °/s
-    bus.writeByteSync(MPU_ADDR, REG_SMPLRT_DIV,    0x04); // ~200 Hz ODR
-    bus.writeByteSync(MPU_ADDR, REG_CONFIG,         0x03); // DLPF 41 Hz
+    // Vérifier l'identité du capteur
+    selectBank(0);
+    const who = bus.readByteSync(ICM_ADDR, B0_WHO_AM_I);
+    if (who !== WHO_AM_I_VAL) {
+      throw new Error(`WHO_AM_I=0x${who.toString(16)} (attendu 0x${WHO_AM_I_VAL.toString(16)})`);
+    }
 
-    // Activer le bypass I2C pour accéder à l'AK8963 directement
-    bus.writeByteSync(MPU_ADDR, REG_USER_CTRL,     0x00); // disable I2C master
-    bus.writeByteSync(MPU_ADDR, REG_INT_PIN_CFG,   0x02); // bypass enable
+    // Reset puis réveil
+    bus.writeByteSync(ICM_ADDR, B0_PWR_MGMT_1, 0x80); // device reset
+    sleepMs(100);
+    selectBank(0);
+    bus.writeByteSync(ICM_ADDR, B0_PWR_MGMT_1, 0x01); // auto clock, sleep off
+    sleepMs(20);
+    bus.writeByteSync(ICM_ADDR, B0_PWR_MGMT_2, 0x00); // accel + gyro on
 
-    // Init AK8963
-    bus.writeByteSync(AK8963_ADDR, 0x0A, 0x00);           // power down
-    const wait = Date.now() + 15;
-    while (Date.now() < wait) { /* busy wait 15ms */ }
-    bus.writeByteSync(AK8963_ADDR, 0x0A, 0x16);           // 16-bit, continu mode 2 (100 Hz)
-    magReady = true;
+    // Configuration accel + gyro (banque 2)
+    selectBank(2);
+    // GYRO_CONFIG_1 : DLPFCFG=0 (197 Hz), FS_SEL=00 (±250 dps), FCHOICE=1 (DLPF on)
+    bus.writeByteSync(ICM_ADDR, B2_GYRO_CONFIG_1, 0x01);
+    // ACCEL_CONFIG : DLPFCFG=0 (246 Hz), FS_SEL=00 (±2g), FCHOICE=1 (DLPF on)
+    bus.writeByteSync(ICM_ADDR, B2_ACCEL_CONFIG, 0x01);
+
+    // Bypass I2C pour parler directement à l'AK09916 (banque 0)
+    selectBank(0);
+    bus.writeByteSync(ICM_ADDR, B0_USER_CTRL,   0x00); // I2C master désactivé
+    bus.writeByteSync(ICM_ADDR, B0_INT_PIN_CFG, 0x02); // BYPASS_EN
+
+    // Init AK09916 : reset + mode continu 4 (100 Hz)
+    try {
+      bus.writeByteSync(AK09916_ADDR, 0x32, 0x01); // CNTL3 soft reset
+      sleepMs(10);
+      bus.writeByteSync(AK09916_ADDR, 0x31, 0x08); // CNTL2 = continuous mode 4
+      sleepMs(10);
+      magReady = true;
+    } catch (e) {
+      parentPort.postMessage({ type: 'status', msg: `AK09916 indisponible (${e.message}) — sans magnétomètre` });
+      magReady = false;
+    }
 
     useRealIMU = true;
-    parentPort.postMessage({ type: 'status', msg: 'MPU-9250 initialisé sur I2C bus 1' });
+    parentPort.postMessage({ type: 'status', msg: `ICM-20948 initialisé sur I2C bus 1 (mag ${magReady ? 'OK' : 'KO'})` });
   } catch (e) {
     useRealIMU = false;
     parentPort.postMessage({ type: 'status', msg: `Erreur init I2C (${e.message}) — mode simulation` });
@@ -144,23 +180,28 @@ function busInit() {
 }
 
 function readIMUSync() {
-  const buf = Buffer.alloc(14);
-  bus.readI2cBlockSync(MPU_ADDR, REG_ACCEL_XOUT_H, 14, buf);
+  const buf = Buffer.alloc(12);
+  bus.readI2cBlockSync(ICM_ADDR, B0_ACCEL_XOUT_H, 12, buf);
   return {
-    ax:  buf.readInt16BE(0)  / ACCEL_SCALE,
-    ay:  buf.readInt16BE(2)  / ACCEL_SCALE,
-    az:  buf.readInt16BE(4)  / ACCEL_SCALE,
-    gx:  buf.readInt16BE(8)  / GYRO_SCALE * DEG2RAD,
-    gy:  buf.readInt16BE(10) / GYRO_SCALE * DEG2RAD,
-    gz:  buf.readInt16BE(12) / GYRO_SCALE * DEG2RAD,
+    ax: buf.readInt16BE(0)  / ACCEL_SCALE,
+    ay: buf.readInt16BE(2)  / ACCEL_SCALE,
+    az: buf.readInt16BE(4)  / ACCEL_SCALE,
+    gx: buf.readInt16BE(6)  / GYRO_SCALE * DEG2RAD,
+    gy: buf.readInt16BE(8)  / GYRO_SCALE * DEG2RAD,
+    gz: buf.readInt16BE(10) / GYRO_SCALE * DEG2RAD,
   };
 }
 
 function readCompassSync() {
   if (!magReady) return null;
-  const buf = Buffer.alloc(7);
-  bus.readI2cBlockSync(AK8963_ADDR, 0x03, 7, buf);
-  if (buf[6] & 0x08) return null; // overflow (HOFL bit)
+  // ST1 : bit 0 = DRDY
+  const st1 = bus.readByteSync(AK09916_ADDR, 0x10);
+  if ((st1 & 0x01) === 0) return null;
+  // 8 octets depuis HXL : HX(L,H), HY(L,H), HZ(L,H), TMPS, ST2.
+  // Lire jusqu'à ST2 inclus est nécessaire pour libérer la mesure.
+  const buf = Buffer.alloc(8);
+  bus.readI2cBlockSync(AK09916_ADDR, 0x11, 8, buf);
+  if (buf[7] & 0x08) return null; // HOFL : overflow
   return {
     mx: buf.readInt16LE(0) * MAG_SCALE,
     my: buf.readInt16LE(2) * MAG_SCALE,
