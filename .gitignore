@@ -10,4 +10,17 @@ neutralino.js
 
 # Neutralinojs related files
 .storage
+.tmp/
 *.log
+
+# Node
+node_modules/
+
+# Clojure / nbb / LSP caches
+.clj-kondo/.cache/
+.lsp/.cache/
+.nrepl-port
+
+# Anciens fichiers / résidus
+resources.old/
+backend/helmpilot-backend@*
