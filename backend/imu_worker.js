@@ -106,6 +106,11 @@ let bus = null;
 let useRealIMU = false;
 let magReady = false;
 
+// Biais de calibration appliqués à toutes les lectures (réel - biais).
+// Mesurés au démarrage pendant 2 s à l'arrêt — voir calibrateAtRest().
+let biasAx = 0, biasAy = 0, biasAz = 0;
+let biasGx = 0, biasGy = 0, biasGz = 0;
+
 function sleepMs(ms) {
   const end = Date.now() + ms;
   while (Date.now() < end) { /* busy wait */ }
@@ -183,13 +188,70 @@ function readIMUSync() {
   const buf = Buffer.alloc(12);
   bus.readI2cBlockSync(ICM_ADDR, B0_ACCEL_XOUT_H, 12, buf);
   return {
-    ax: buf.readInt16BE(0)  / ACCEL_SCALE,
-    ay: buf.readInt16BE(2)  / ACCEL_SCALE,
-    az: buf.readInt16BE(4)  / ACCEL_SCALE,
-    gx: buf.readInt16BE(6)  / GYRO_SCALE * DEG2RAD,
-    gy: buf.readInt16BE(8)  / GYRO_SCALE * DEG2RAD,
-    gz: buf.readInt16BE(10) / GYRO_SCALE * DEG2RAD,
+    ax: buf.readInt16BE(0)  / ACCEL_SCALE - biasAx,
+    ay: buf.readInt16BE(2)  / ACCEL_SCALE - biasAy,
+    az: buf.readInt16BE(4)  / ACCEL_SCALE - biasAz,
+    gx: buf.readInt16BE(6)  / GYRO_SCALE * DEG2RAD - biasGx,
+    gy: buf.readInt16BE(8)  / GYRO_SCALE * DEG2RAD - biasGy,
+    gz: buf.readInt16BE(10) / GYRO_SCALE * DEG2RAD - biasGz,
   };
+}
+
+// Calibration "à l'arrêt" : moyenne 2 s de lectures, en déduire les biais.
+// - Gyro : la moyenne au repos *est* le biais (devrait lire 0 dps).
+// - Accel : on force la norme du vecteur mesuré à 1 g dans la direction
+//   actuelle. Workaround pour module au MEMS Y défaillant — l'angle d'attitude
+//   reste utilisable tant que le bateau n'est pas trop incliné par rapport à
+//   l'orientation de calibration.
+function calibrateAtRest(durationMs = 2000) {
+  if (!useRealIMU) return;
+  parentPort.postMessage({ type: 'status', msg: `Calibration au repos (${durationMs / 1000}s) — ne bouge pas le bateau` });
+
+  const intervalMs = 20; // 50 Hz
+  const N = Math.floor(durationMs / intervalMs);
+  let sAx = 0, sAy = 0, sAz = 0, sGx = 0, sGy = 0, sGz = 0;
+  let count = 0;
+
+  for (let i = 0; i < N; i++) {
+    try {
+      const d = readIMUSync(); // biais encore à 0, donc retourne brut
+      sAx += d.ax; sAy += d.ay; sAz += d.az;
+      sGx += d.gx; sGy += d.gy; sGz += d.gz;
+      count++;
+    } catch (e) { /* skip */ }
+    sleepMs(intervalMs);
+  }
+
+  if (count < N * 0.8) {
+    parentPort.postMessage({ type: 'status', msg: `Calibration incomplète (${count}/${N}) — biais ignorés` });
+    return;
+  }
+
+  const mAx = sAx / count, mAy = sAy / count, mAz = sAz / count;
+  biasGx = sGx / count;
+  biasGy = sGy / count;
+  biasGz = sGz / count;
+
+  const norm = Math.sqrt(mAx * mAx + mAy * mAy + mAz * mAz);
+  if (norm < 0.1) {
+    parentPort.postMessage({ type: 'status', msg: `Calibration: |a|=${norm.toFixed(3)}g, capteur muet — biais accel ignorés` });
+    return;
+  }
+
+  // bias = mesure - direction_unitaire → après soustraction on obtient un
+  // vecteur de norme 1 g pointant dans la direction mesurée.
+  biasAx = mAx - mAx / norm;
+  biasAy = mAy - mAy / norm;
+  biasAz = mAz - mAz / norm;
+
+  // Détection saturation : si un axe est à ±2 g pendant la calib, le MEMS
+  // sature et la compensation sera fausse en navigation.
+  const sat = Math.max(Math.abs(mAx), Math.abs(mAy), Math.abs(mAz)) >= 1.95;
+
+  parentPort.postMessage({
+    type: 'status',
+    msg: `Calibration OK: |a|brut=${norm.toFixed(3)}g, biais accel=(${biasAx.toFixed(3)}, ${biasAy.toFixed(3)}, ${biasAz.toFixed(3)})g, biais gyro=(${biasGx.toFixed(3)}, ${biasGy.toFixed(3)}, ${biasGz.toFixed(3)})rad/s${sat ? ' — ATTENTION axe saturé, compensation peu fiable' : ''}`,
+  });
 }
 
 function readCompassSync() {
@@ -281,5 +343,6 @@ function step() {
 }
 
 busInit();
+calibrateAtRest();
 lastTime = Date.now();
 step();
