@@ -24,3 +24,6 @@ node_modules/
 # Anciens fichiers / résidus
 resources.old/
 backend/helmpilot-backend@*
+
+# IMU local calibration (spécifique à l'install physique du module)
+backend/imu_mag_cal.json

@@ -111,6 +111,20 @@ let magReady = false;
 let biasAx = 0, biasAy = 0, biasAz = 0;
 let biasGx = 0, biasGy = 0, biasGz = 0;
 
+// Calibration magnétomètre : hard-iron (offset) + soft-iron diagonal (scale).
+// Persistée dans imu_mag_cal.json à côté du worker. Si absente, lance une
+// phase de calibration de MAG_CAL_DURATION_MS au démarrage pendant laquelle
+// l'utilisateur fait tourner le module dans toutes les directions.
+let magOffX = 0, magOffY = 0, magOffZ = 0;
+let magScaleX = 1, magScaleY = 1, magScaleZ = 1;
+let magCalActive = false;
+let magCalT0 = 0;
+let magMinX = Infinity, magMinY = Infinity, magMinZ = Infinity;
+let magMaxX = -Infinity, magMaxY = -Infinity, magMaxZ = -Infinity;
+let magCalLastProgress = 0;
+const MAG_CAL_DURATION_MS = 30000;
+const MAG_CAL_FILE = require('path').join(__dirname, 'imu_mag_cal.json');
+
 function sleepMs(ms) {
   const end = Date.now() + ms;
   while (Date.now() < end) { /* busy wait */ }
@@ -264,11 +278,100 @@ function readCompassSync() {
   const buf = Buffer.alloc(8);
   bus.readI2cBlockSync(AK09916_ADDR, 0x11, 8, buf);
   if (buf[7] & 0x08) return null; // HOFL : overflow
+  const rawMx = buf.readInt16LE(0) * MAG_SCALE;
+  const rawMy = buf.readInt16LE(2) * MAG_SCALE;
+  const rawMz = buf.readInt16LE(4) * MAG_SCALE;
+  updateMagCal(rawMx, rawMy, rawMz);
   return {
-    mx: buf.readInt16LE(0) * MAG_SCALE,
-    my: buf.readInt16LE(2) * MAG_SCALE,
-    mz: buf.readInt16LE(4) * MAG_SCALE,
+    mx: (rawMx - magOffX) * magScaleX,
+    my: (rawMy - magOffY) * magScaleY,
+    mz: (rawMz - magOffZ) * magScaleZ,
   };
+}
+
+function loadMagCal() {
+  try {
+    const fs = require('fs');
+    if (process.env.IMU_MAG_RECAL === '1') return false;
+    const cal = JSON.parse(fs.readFileSync(MAG_CAL_FILE, 'utf8'));
+    magOffX = cal.offX; magOffY = cal.offY; magOffZ = cal.offZ;
+    magScaleX = cal.scaleX; magScaleY = cal.scaleY; magScaleZ = cal.scaleZ;
+    parentPort.postMessage({ type: 'status',
+      msg: `Calibration mag chargée: offset=(${magOffX.toFixed(1)}, ${magOffY.toFixed(1)}, ${magOffZ.toFixed(1)}) µT  scale=(${magScaleX.toFixed(2)}, ${magScaleY.toFixed(2)}, ${magScaleZ.toFixed(2)})` });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function saveMagCal() {
+  try {
+    const fs = require('fs');
+    fs.writeFileSync(MAG_CAL_FILE, JSON.stringify({
+      offX: magOffX, offY: magOffY, offZ: magOffZ,
+      scaleX: magScaleX, scaleY: magScaleY, scaleZ: magScaleZ,
+      timestamp: new Date().toISOString(),
+    }, null, 2));
+  } catch (e) {
+    parentPort.postMessage({ type: 'status', msg: `Échec sauvegarde mag cal: ${e.message}` });
+  }
+}
+
+function startMagCal() {
+  if (!magReady) {
+    parentPort.postMessage({ type: 'status', msg: 'Mag absent, calibration ignorée' });
+    return;
+  }
+  magCalActive = true;
+  magCalT0 = Date.now();
+  magCalLastProgress = magCalT0;
+  magMinX = magMinY = magMinZ = Infinity;
+  magMaxX = magMaxY = magMaxZ = -Infinity;
+  parentPort.postMessage({ type: 'status',
+    msg: `Calibration mag DÉMARRÉE (${MAG_CAL_DURATION_MS / 1000}s) — fais tourner le module dans toutes les directions : rotations 360° autour de chaque axe + figure 8` });
+}
+
+function updateMagCal(mx, my, mz) {
+  if (!magCalActive) return;
+  if (mx < magMinX) magMinX = mx;
+  if (my < magMinY) magMinY = my;
+  if (mz < magMinZ) magMinZ = mz;
+  if (mx > magMaxX) magMaxX = mx;
+  if (my > magMaxY) magMaxY = my;
+  if (mz > magMaxZ) magMaxZ = mz;
+
+  const now = Date.now();
+  const elapsed = now - magCalT0;
+  if (now - magCalLastProgress >= 5000) {
+    magCalLastProgress = now;
+    const remain = Math.max(0, MAG_CAL_DURATION_MS - elapsed);
+    parentPort.postMessage({ type: 'status',
+      msg: `Calibration mag en cours… ${Math.round(remain / 1000)}s restantes  X=[${magMinX.toFixed(1)}, ${magMaxX.toFixed(1)}]  Y=[${magMinY.toFixed(1)}, ${magMaxY.toFixed(1)}]  Z=[${magMinZ.toFixed(1)}, ${magMaxZ.toFixed(1)}]` });
+  }
+
+  if (elapsed >= MAG_CAL_DURATION_MS) finishMagCal();
+}
+
+function finishMagCal() {
+  magCalActive = false;
+  magOffX = (magMaxX + magMinX) / 2;
+  magOffY = (magMaxY + magMinY) / 2;
+  magOffZ = (magMaxZ + magMinZ) / 2;
+  const rx = (magMaxX - magMinX) / 2;
+  const ry = (magMaxY - magMinY) / 2;
+  const rz = (magMaxZ - magMinZ) / 2;
+  const rAvg = (rx + ry + rz) / 3;
+  if (rx > 1 && ry > 1 && rz > 1) {
+    magScaleX = rAvg / rx;
+    magScaleY = rAvg / ry;
+    magScaleZ = rAvg / rz;
+  } else {
+    parentPort.postMessage({ type: 'status',
+      msg: 'Couverture insuffisante pendant la calibration mag — rotations probablement trop limitées. Relance avec IMU_MAG_RECAL=1 pour réessayer.' });
+  }
+  saveMagCal();
+  parentPort.postMessage({ type: 'status',
+    msg: `Calibration mag TERMINÉE: offset=(${magOffX.toFixed(1)}, ${magOffY.toFixed(1)}, ${magOffZ.toFixed(1)}) µT  scale=(${magScaleX.toFixed(2)}, ${magScaleY.toFixed(2)}, ${magScaleZ.toFixed(2)})  rayons=(${rx.toFixed(1)}, ${ry.toFixed(1)}, ${rz.toFixed(1)}) µT` });
 }
 
 // ---------------------------------------------------------------------------
@@ -344,5 +447,8 @@ function step() {
 
 busInit();
 calibrateAtRest();
+if (useRealIMU && magReady && !loadMagCal()) {
+  startMagCal();
+}
 lastTime = Date.now();
 step();
