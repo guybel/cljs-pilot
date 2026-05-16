@@ -9,7 +9,7 @@
   :ws-port 23323}
 
  ;; --- Source IMU -----------------------------------------
- ;; :boatimu → MPU-9250 via I2C (simulation si pas de matériel)
+ ;; :boatimu → BNO055 via I2C (simulation si pas de matériel)
  ;; :signalk  → serveur Signal K sur le réseau
  ;; :both     → les deux ; Signal K prend le dessus si connecté
  :imu

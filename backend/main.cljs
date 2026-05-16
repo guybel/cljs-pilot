@@ -26,7 +26,7 @@
   (servo/start! (config/get-cfg :servo))
 
   ;; 5. Source(s) IMU selon :imu :source dans config.edn
-  ;;    :boatimu → MPU-9250 I2C (simulation si pas de matériel)
+  ;;    :boatimu → BNO055 I2C (simulation si pas de matériel)
   ;;    :signalk → serveur Signal K réseau
   ;;    :both    → les deux ; Signal K prend le dessus si connecté
   (let [src (config/get-cfg :imu :source)]

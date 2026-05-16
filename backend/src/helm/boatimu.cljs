@@ -7,9 +7,9 @@
 ;;
 ;; Ce namespace :
 ;;   1. Enregistre toutes les valeurs imu.* dans le registre
-;;   2. Démarre un worker Node.js (imu_worker.js) qui lit le MPU-9250 via I2C
-;;      ou simule si I2C n'est pas disponible
-;;   3. Reçoit les données fusionnées (quaternion Mahony)
+;;   2. Démarre un worker Node.js (imu_worker.js) qui lit le BNO055 via I2C
+;;      (fusion 9-DOF en hardware) ou simule si I2C n'est pas disponible
+;;   3. Reçoit les données fusionnées (quaternion + euler + statut de calib)
 ;;   4. Calcule heading/pitch/roll/headingrate/headingraterate + filtres lowpass
 ;;   5. Appelle le callback on-data (autopilot/on-imu-data!)
 
@@ -48,6 +48,8 @@
   (v/sensor-value! "imu.heading_lowpass"      false :directional true)
   (v/sensor-value! "imu.fusionQPose"          false :fmt "%.10f")
   (v/sensor-value! "imu.frequency"            false)
+  ;; Statut de calibration BNO055 — chaque sous-système coté 0 (non calibré) à 3 (entièrement)
+  (v/sensor-value! "imu.calibration"          false)
   (v/string-value! "imu.error"                ""))
 
 ;; ---------------------------------------------------------------------------
@@ -88,7 +90,7 @@
   "Calcule toutes les valeurs dérivées depuis le quaternion fusionné.
    Appelle on-data-fn avec {:heading :headingrate :headingraterate :pitch :roll}."
   [msg on-data-fn]
-  (let [{:keys [fusionQPose accel gyro compass timestamp]} msg
+  (let [{:keys [fusionQPose accel gyro compass calibration timestamp]} msg
 
         ;; Appliquer alignmentQ
         alignment-q  (or (v/get-value "imu.alignmentQ") [1 0 0 0])
@@ -168,6 +170,7 @@
     (v/update-value! "imu.heading_lowpass"          heading-lp)
     (v/update-value! "imu.headingrate_lowpass"      headingrate-lp)
     (v/update-value! "imu.headingraterate_lowpass"  headingraterate-lp)
+    (when calibration (v/update-value! "imu.calibration" calibration))
 
     ;; Appel du callback autopilot
     (on-data-fn {:heading           heading-lp
