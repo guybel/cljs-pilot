@@ -616,3 +616,48 @@ html, body {
   padding: 8px 0;
   text-align: center;
 }
+
+/* ---- calibration BNO055 ---- */
+.calib-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.calib-cell {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 4px 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.calib-cell.calib-bad { border-color: #b34a4a; }
+.calib-cell.calib-mid { border-color: #b39a4a; }
+.calib-cell.calib-ok  { border-color: #4ab37c; }
+.calib-dots {
+  display: flex;
+  gap: 4px;
+}
+.calib-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.calib-dot.on { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.calib-cell.calib-ok .calib-dot.on { background: #4ab37c; box-shadow: 0 0 6px #4ab37c; }
+.calib-cell.calib-bad .calib-dot.on { background: #b34a4a; box-shadow: 0 0 6px #b34a4a; }
+.calib-score {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.calib-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  padding: 4px 8px;
+}

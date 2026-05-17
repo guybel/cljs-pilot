@@ -112,11 +112,13 @@
    "imu.heading"           0.5
    "imu.pitch"             0.5
    "imu.roll"              0.5
+   "imu.heel"              0.5
    "imu.heading_offset"    0
    "imu.rate"              0
    "imu.heading_lowpass_constant"      0
    "imu.headingrate_lowpass_constant"  0
    "imu.headingraterate_lowpass_constant" 0
+   "imu.calibration"       1
    "signalk.host"          0
    "signalk.port"          0
    "signalk.enabled"       0
@@ -385,9 +387,16 @@
             (number? mn) (assoc :min mn)
             (number? mx) (assoc :max mx))]]))))
 
+(defn- first-present
+  "Renvoie la première valeur du registre qui n'est ni nil ni false."
+  [ks]
+  (some (fn [k] (let [vv (v k)] (when-not (or (nil? vv) (false? vv)) vv))) ks))
+
 (defn value-display
-  [{:keys [key label unit fmt badge-fn]}]
-  (let [val (v key)
+  [{:keys [key fallback label unit fmt badge-fn]}]
+  (let [val (if fallback
+              (first-present (cons key (if (vector? fallback) fallback [fallback])))
+              (v key))
         formatted
         (case fmt
           :deg       (fmt-deg val)
@@ -525,9 +534,9 @@
       [:div.heading-display (fmt-deg heading)]]
 
      [:div.sensor-grid
-      [value-display {:key "signalk.pitch" :label "PITCH" :fmt :d1 :unit "°"}]
-      [value-display {:key "signalk.roll"  :label "ROLL"  :fmt :d1 :unit "°"}]
-      [value-display {:key "signalk.heel"  :label "GÎTE"  :fmt :d1 :unit "°"}]
+      [value-display {:key "signalk.pitch" :fallback "imu.pitch" :label "PITCH" :fmt :d1 :unit "°"}]
+      [value-display {:key "signalk.roll"  :fallback "imu.roll"  :label "ROLL"  :fmt :d1 :unit "°"}]
+      [value-display {:key "signalk.heel"  :fallback "imu.heel"  :label "GÎTE"  :fmt :d1 :unit "°"}]
       [:div.value-cell
        [:div.value-label "ERREUR"]
        [:div.value-num {:class err-cls} (fmt-deg heading-err true)]]]
@@ -578,6 +587,30 @@
       [value-display {:key "ap.heading_command_rate"
                       :label "TAUX CMD" :fmt :d2 :unit "°/s"}]]]))
 
+(defn- calib-cell
+  "Affiche un niveau de calib BNO055 : pastilles 0-3 + label."
+  [label level]
+  (let [n      (or level 0)
+        klass  (cond (= n 3) "calib-cell calib-ok"
+                     (= n 0) "calib-cell calib-bad"
+                     :else   "calib-cell calib-mid")]
+    [:div {:class klass}
+     [:div.calib-dots
+      (for [i (range 3)]
+        ^{:key i}
+        [:span.calib-dot {:class (when (> n i) "on")}])]
+     [:div.value-label label]
+     [:div.calib-score (str n "/3")]]))
+
+(defn- calib-status []
+  (let [c     (v "imu.calibration")
+        getf  (fn [k] (when (and c (not (false? c))) (aget c k)))]
+    [:div.calib-grid
+     [calib-cell "SYS" (getf "sys")]
+     [calib-cell "GYR" (getf "gyr")]
+     [calib-cell "ACC" (getf "acc")]
+     [calib-cell "MAG" (getf "mag")]]))
+
 (defn tab-calibration []
   [:div.tab.tab-calibration
    [:div.section-head "LECTURE LIVE"]
@@ -586,6 +619,11 @@
     [value-display {:key "imu.pitch"   :label "PITCH"   :fmt :d1 :unit "°"}]
     [value-display {:key "imu.roll"    :label "ROLL"    :fmt :d1 :unit "°"}]
     [value-display {:key "imu.frequency" :label "FREQ IMU" :fmt :d1 :unit "Hz"}]]
+
+   [:div.section-head "CALIBRATION BNO055"]
+   [calib-status]
+   [:div.calib-hint
+    "Pour finaliser : gyr → laisser immobile 5 s · acc → poser sur 6 faces · mag → faire un 8 dans l'air"]
 
    [:div.section-head "ALIGNEMENT COMPAS"]
    [range-slider {:key "imu.heading_offset" :label "Offset magnétique"}]

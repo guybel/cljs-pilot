@@ -48,8 +48,9 @@
   (v/sensor-value! "imu.heading_lowpass"      false :directional true)
   (v/sensor-value! "imu.fusionQPose"          false :fmt "%.10f")
   (v/sensor-value! "imu.frequency"            false)
-  ;; Statut de calibration BNO055 — chaque sous-système coté 0 (non calibré) à 3 (entièrement)
-  (v/sensor-value! "imu.calibration"          false)
+  ;; Statut de calibration BNO055 — chaque sous-système coté 0 (non calibré) à 3 (entièrement).
+  ;; JSONValue car SensorValue ne sait pas sérialiser une map sur le wire.
+  (v/json-value!   "imu.calibration"          {:sys 0 :gyr 0 :acc 0 :mag 0})
   (v/string-value! "imu.error"                ""))
 
 ;; ---------------------------------------------------------------------------
