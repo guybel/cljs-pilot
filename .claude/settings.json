@@ -8,7 +8,17 @@
       "Bash(ls /dev/i2c*)",
       "Bash(find /home/guy/Documents/pilot/pypilot -name arduino_servo* -o -name arduinoservo*)",
       "Bash(find /home/guy/Documents/pilot/pypilot -name crc*)",
-      "Bash(git -C /home/guy/Documents/pilot/cljs-pilot status --short)"
+      "Bash(git -C /home/guy/Documents/pilot/cljs-pilot status --short)",
+      "Bash(bash start.sh)",
+      "Bash(mkdir -p /home/guy/Documents/pilot/cljs-pilot/resources/vendor)",
+      "Bash(curl -sSfO \"https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.min.js\")",
+      "Bash(curl -sSfO \"https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.promesa.min.js\")",
+      "Bash(curl -sSfO \"https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.reagent.min.js\")",
+      "Bash(curl -sSfO \"https://cdn.jsdelivr.net/npm/react@17.0.2/umd/react.production.min.js\")",
+      "Bash(ssh dietpi@192.168.40.16 'python3 -c '\\\\''import icm20948, inspect; print\\(icm20948.__file__\\); print\\(\"---\"\\); src=inspect.getsource\\(icm20948\\); *)",
+      "Bash(ssh dietpi@192.168.40.16 'python3 -c '\\\\'' *)",
+      "Bash(ssh dietpi@192.168.40.16 \"sudo pkill -f imu-socket-service.py; sudo pkill -f imu-fifo-service.py; sleep 1; ps -ef | grep imu | grep -v grep\")",
+      "Bash(ssh dietpi@192.168.40.16 \"ls /etc/systemd/system/ | grep -iE 'imu|pilot|helm' 2>&1; echo '---'; cat /etc/rc.local 2>/dev/null | grep -iE 'imu|python' ; echo '---'; sudo -n crontab -l 2>&1 ; echo '---' ; crontab -l 2>&1\")"
     ]
   }
 }

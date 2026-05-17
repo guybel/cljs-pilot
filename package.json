@@ -1,5 +1,12 @@
 {
+  "name": "cljs-pilot-www",
+  "private": true,
+  "description": "HelmPilot web frontend served via cljs-josh",
+  "scripts": {
+    "start": "josh --dir www --prod",
+    "dev": "josh --dir www"
+  },
   "dependencies": {
-    "@neutralinojs/neu": "^11.7.0"
+    "cljs-josh": "^0.2.3"
   }
 }

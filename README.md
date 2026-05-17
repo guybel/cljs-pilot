@@ -3,7 +3,7 @@
 Autopilote de voilier — port de [pypilot](https://github.com/pypilot/pypilot) en ClojureScript.
 
 - **Backend** : [nbb](https://github.com/babashka/nbb) (Node.js + ClojureScript), serveur TCP+WebSocket compatible protocole pypilot
-- **Frontend** : [Scittle](https://github.com/babashka/scittle) + Reagent dans une fenêtre [Neutralino](https://neutralino.js.org/)
+- **Frontend** : [Scittle](https://github.com/babashka/scittle) + Reagent, servi en HTTP par [cljs-josh](https://github.com/chr15m/cljs-josh) (PWA installable sur tablette)
 - **Source de données** : serveur Signal K (actuellement) ou MPU-9250 I2C direct (prévu)
 
 ## Architecture
@@ -11,7 +11,8 @@ Autopilote de voilier — port de [pypilot](https://github.com/pypilot/pypilot) 
 ```
 ┌──────────────────┐   WebSocket ws://:23323    ┌───────────────┐
 │ Frontend Scittle │ ◄────────────────────────► │ Backend nbb   │
-│ (Neutralino)     │   name=value\n             │ (ClojureScript)│
+│ (browser tablet) │   name=value\n             │ (ClojureScript)│
+│   http://:8000   │                            │               │
 └──────────────────┘                             └───────┬───────┘
                                                          │
                             ┌────────────────────────────┼────────────────────────┐
@@ -31,7 +32,7 @@ Autopilote de voilier — port de [pypilot](https://github.com/pypilot/pypilot) 
 
 ```bash
 cd backend && npm install       # nbb, ws, i2c-bus, serialport
-cd ..      && npm install       # neu CLI
+cd ..      && npm install       # cljs-josh (serveur HTTP)
 ```
 
 ### 1. Backend (terminal 1)
@@ -55,10 +56,30 @@ helmpilot TCP server listening on port 23322
 ### 2. Frontend (terminal 2)
 
 ```bash
-npx neu run
+npm run dev          # live-reload (dev)
+# ou : npm start    # mode prod (--prod, pas de live-reload)
 ```
 
-Une fenêtre Neutralino s'ouvre (clic droit → Inspect pour la console DevTools). La boussole, pitch, roll et gîte se mettent à jour dès que le backend reçoit des données Signal K.
+Puis ouvrir **http://localhost:8000** dans un browser, ou **http://\<ip-pi\>:8000** depuis la tablette. La boussole, pitch, roll et gîte se mettent à jour dès que le backend reçoit des données Signal K.
+
+### Installation PWA sur tablette
+
+Ouvrir l'URL du Pi dans Safari (iOS) ou Chrome (Android), puis :
+- **iOS** : *Partager → Sur l'écran d'accueil*
+- **Android** : bouton « Installer » dans le menu
+
+L'app se lance en plein écran depuis l'icône, comme une app native.
+
+### Déploiement sur le Pi
+
+Le repo contient une unit systemd prête à l'emploi : [deploy/helmpilot-www.service](deploy/helmpilot-www.service). Sur le Pi, après `git pull` :
+
+```bash
+cd ~/cljs-pilot && npm install
+sudo cp deploy/helmpilot-www.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now helmpilot-www.service
+```
 
 ## Configuration
 
@@ -119,17 +140,22 @@ cljs-pilot/
 │       ├── servo.cljs        # Servo Arduino
 │       ├── config.cljs       # Lecteur config.edn
 │       └── pilots/           # PID basic
-├── resources/                # Frontend servi par Neutralino
+├── www/                      # Frontend servi par cljs-josh
 │   ├── index.html
 │   ├── main.cljs             # UI Reagent (boussole, capteurs, contrôles AP)
-│   └── style.css
-├── bin/                      # Binaires Neutralino
-└── neutralino.config.json
+│   ├── style.css
+│   ├── manifest.json         # PWA
+│   ├── icon-192.png, icon-512.png
+│   └── vendor/               # Scittle, Reagent, React (préminifiés)
+├── deploy/
+│   └── helmpilot-www.service # Unit systemd pour le Pi
+└── package.json              # cljs-josh
 ```
 
 ## Dépannage
 
 - **`[config] config.edn introuvable`** → lance depuis `backend/`, pas depuis la racine.
 - **`[SignalK] Désactivé`** → `:signalk :enabled` est à `false` dans `config.edn`.
-- **Frontend `WS closed` en boucle** → backend pas démarré ou pas sur le même réseau. Vérifie dans la console DevTools la ligne `[UI] WebSocket URL:`.
+- **Frontend `WS closed` en boucle** → backend pas démarré ou pas sur le même réseau. Vérifie dans la console DevTools la ligne `[UI] WebSocket URL:`. La WS pointe sur le même hostname que la page HTTP, donc servir le frontend depuis le Pi évite tout problème de cross-host.
+- **Tablette ne charge pas l'app** → vérifie que `helmpilot-www.service` tourne (`systemctl status helmpilot-www`) et que le port 8000 n'est pas filtré par un firewall.
 - **Pas de GÎTE affichée** → filtre IIR lent, ~30-60 s pour converger au démarrage.

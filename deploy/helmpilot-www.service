@@ -1,0 +1,15 @@
+[Unit]
+Description=HelmPilot web frontend (cljs-josh)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dietpi
+WorkingDirectory=/home/dietpi/cljs-pilot
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
