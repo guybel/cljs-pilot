@@ -192,20 +192,25 @@
 ;; [E] Helpers formatage
 ;; ===========================================================================
 
+(defn- num?
+  "Vrai ssi v est un number fini (filtre nil/false/NaN/strings)."
+  [v]
+  (and (number? v) (not (js/isNaN v))))
+
 (defn- fmt-deg
   ([val] (fmt-deg val false))
   ([val signed?]
-   (if (or (nil? val) (false? val)) "---"
+   (if-not (num? val) "---"
        (let [n (js/Math.round val)]
          (if signed?
            (str (if (>= n 0) "+" "") n "°")
            (str (-> (str "00" (js/Math.abs n)) (.slice -3)) "°"))))))
 
 (defn- fmt-1 [val]
-  (if (or (nil? val) (false? val)) "--.-" (.toFixed val 1)))
+  (if (num? val) (.toFixed val 1) "--.-"))
 
 (defn- fmt-n [val n]
-  (if (or (nil? val) (false? val)) "---" (.toFixed val n)))
+  (if (num? val) (.toFixed val n) "---"))
 
 (defn- resolv [a]
   (loop [a a]
@@ -388,9 +393,9 @@
             (number? mx) (assoc :max mx))]]))))
 
 (defn- first-present
-  "Renvoie la première valeur du registre qui n'est ni nil ni false."
+  "Renvoie la première valeur du registre utilisable (nombre fini)."
   [ks]
-  (some (fn [k] (let [vv (v k)] (when-not (or (nil? vv) (false? vv)) vv))) ks))
+  (some (fn [k] (let [vv (v k)] (when (num? vv) vv))) ks))
 
 (defn value-display
   [{:keys [key fallback label unit fmt badge-fn]}]

@@ -121,6 +121,12 @@ function readAll() {
   const qy = buf.readInt16LE(28) * QUAT_SCALE;
   const qz = buf.readInt16LE(30) * QUAT_SCALE;
 
+  // Au démarrage NDOF, le quaternion est [0,0,0,0] jusqu'à ce que la fusion stabilise.
+  // Sans guard, q/normalize en backend produirait NaN et empoisonnerait imu.heel pour de bon.
+  if (qw === 0 && qx === 0 && qy === 0 && qz === 0) {
+    return null;
+  }
+
   return {
     accel:   [ax / G_TO_MS2, ay / G_TO_MS2, az / G_TO_MS2], // converti en g pour rester compatible imu.accel
     gyro:    [gx, gy, gz],         // rad/s (boatimu.cljs convertit en °/s pour imu.gyro)
@@ -181,6 +187,11 @@ function step() {
   if (useRealIMU) {
     try {
       frame = readAll();
+      if (frame === null) {
+        // BNO055 pas encore prêt (quaternion nul) — re-essaie au prochain cycle
+        setTimeout(step, TARGET_MS);
+        return;
+      }
       // Statut de calibration : on envoie un message status seulement quand il change
       const c = readCalib();
       if (c.raw !== lastCalibSent) {

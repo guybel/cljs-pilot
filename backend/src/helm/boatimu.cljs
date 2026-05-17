@@ -123,8 +123,10 @@
                           (/ (- headingrate last-headingrate) dt)
                           0)
 
-        ;; heel (roll IIR très lent)
-        new-heel     (+ (* 0.03 roll) (* 0.97 heel))
+        ;; heel (roll IIR très lent) — NaN sur l'entrée empoisonnerait le filtre, on garde l'ancienne valeur
+        new-heel     (if (js/isNaN roll)
+                       heel
+                       (+ (* 0.03 roll) (* 0.97 heel)))
 
         ;; Lowpass heading
         lp-h  (v/get-value "imu.heading_lowpass_constant")
