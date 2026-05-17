@@ -1,0 +1,15 @@
+[Unit]
+Description=HelmPilot backend (nbb / pypilot protocol)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dietpi
+WorkingDirectory=/home/dietpi/cljs-pilot/backend
+ExecStart=/usr/local/bin/npx nbb -cp src main.cljs
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

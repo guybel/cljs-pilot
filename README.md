@@ -72,13 +72,14 @@ L'app se lance en plein écran depuis l'icône, comme une app native.
 
 ### Déploiement sur le Pi
 
-Le repo contient une unit systemd prête à l'emploi : [deploy/helmpilot-www.service](deploy/helmpilot-www.service). Sur le Pi, après `git pull` :
+Le repo contient deux unit systemd : [deploy/helmpilot.service](deploy/helmpilot.service) (backend nbb) et [deploy/helmpilot-www.service](deploy/helmpilot-www.service) (frontend cljs-josh). Sur le Pi, après `git pull` :
 
 ```bash
 cd ~/cljs-pilot && npm install
-sudo cp deploy/helmpilot-www.service /etc/systemd/system/
+cd backend     && npm install && cd ..
+sudo cp deploy/helmpilot.service deploy/helmpilot-www.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now helmpilot-www.service
+sudo systemctl enable --now helmpilot.service helmpilot-www.service
 ```
 
 ## Configuration
