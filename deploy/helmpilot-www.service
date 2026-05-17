@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=dietpi
 WorkingDirectory=/home/dietpi/cljs-pilot
-ExecStart=/usr/bin/npm run start
+ExecStart=/usr/local/bin/npm run start
 Restart=always
 RestartSec=2
 
