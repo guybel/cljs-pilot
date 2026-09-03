@@ -1,19 +1,15 @@
 (ns helm.servo
-  (:require [helm.values :as v]
-            [helm.config :as config]))
+  (:require [helm.values :as v]))
 
 ;; ============================================================================
 ;; Servo Motor Control — WiFi (ESP32 S3) or Serial (Arduino)
-;; ============================================================================
-;; Support dual-mode :
-;; - :wifi  → HTTP GET http://192.168.42.10/motor/<speed>
-;; - :serial → [deprecated] SerialPort Arduino (legacy)
 ;; ============================================================================
 
 (defonce state
   (atom {:connected false
          :last-speed 0
-         :mode nil}))
+         :mode nil
+         :url nil}))
 
 ;; ---------------------------------------------------------------------------
 ;; Registre des valeurs
@@ -34,11 +30,10 @@
   [url cmd]
   (when (:connected @state)
     (let [clamped (max -1.0 (min 1.0 (double cmd)))
-          speed   (int (* (+ clamped 1.0) 511.5))]  ; [-1, 1] → [0, 1023]
+          speed   (int (* (+ clamped 1.0) 511.5))]
       (swap! state assoc :last-speed speed)
       (v/update-value! "servo.command" speed)
 
-      ;; Appel HTTP asynchrone à l'ESP32
       (-> (js/fetch (str url "/motor/" speed))
           (.then #(.text %))
           (.then (fn [response]
@@ -48,14 +43,12 @@
 
 (defn wifi:stop! []
   (when (:connected @state)
-    (wifi:send-command! (-> @config/data :servo :url) 0)))
+    (wifi:send-command! (:url @state) 0)))
 
 (defn wifi:start! [url]
-  "Démarre la connexion à l'ESP32 WiFi.
-   url : http://192.168.42.10"
   (register-values!)
+  (swap! state assoc :url url)
 
-  ;; Test de connexion
   (-> (js/fetch (str url "/motor/0"))
       (.then #(.text %))
       (.then (fn [response]
@@ -74,43 +67,36 @@
 ;; ---------------------------------------------------------------------------
 
 (defn serial:send-command! [cmd]
-  "Envoie cmd ∈ [-1, 1] au servo Arduino (legacy)."
   (when (:connected @state)
     (js/console.warn "[servo:serial] Not implemented yet")))
 
 (defn serial:start! [port baud]
-  "Démarre la connexion série Arduino (legacy - non utilisé)."
   (js/console.log (str "[servo:serial] Port " port " @" baud " baud (not yet implemented)")))
 
 ;; ---------------------------------------------------------------------------
 ;; Interface unifiée
 ;; ---------------------------------------------------------------------------
 
-(defn send-command!
-  "Envoie une commande normalisée cmd ∈ [-1, 1] au moteur."
-  [cmd]
+(defn send-command! [cmd]
   (case (:mode @state)
-    :wifi   (wifi:send-command! (-> @config/data :servo :url) cmd)
+    :wifi   (wifi:send-command! (:url @state) cmd)
     :serial (serial:send-command! cmd)
     (js/console.warn "[servo] Not connected")))
 
 (defn stop-servo! []
   (case (:mode @state)
     :wifi   (wifi:stop!)
-    :serial nil  ; serial:stop!
+    :serial nil
     (js/console.warn "[servo] Not connected")))
 
 ;; ---------------------------------------------------------------------------
-;; Startup — détecte le mode depuis la config
+;; Startup
 ;; ---------------------------------------------------------------------------
 
-(defn start!
-  "Démarre le servo selon la config : :wifi ou :serial"
-  []
+(defn start! [servo-cfg]
   (register-values!)
 
-  (let [servo-cfg (:servo @config/data)
-        servo-type (or (:type servo-cfg) :serial)]  ; défaut :serial (legacy)
+  (let [servo-type (or (:type servo-cfg) :serial)]
 
     (case servo-type
       :wifi
@@ -135,14 +121,12 @@
 ;; ---------------------------------------------------------------------------
 
 (defn status []
-  "Retourne l'état du servo"
   @state)
 
 (defn test-speed! [speed]
-  "Test : envoie une vitesse brute [0, 1023]"
-  (let [url (-> @config/data :servo :url)]
-    (if (= :wifi (:mode @state))
+  (let [url (:url @state)]
+    (if (and (= :wifi (:mode @state)) url)
       (-> (js/fetch (str url "/motor/" speed))
           (.then #(.text %))
           (.then #(js/console.log "[servo:test]" %)))
-      (js/console.warn "[servo] Not in WiFi mode"))))
+      (js/console.warn "[servo] Not in WiFi mode or URL not set"))))
