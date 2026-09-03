@@ -1,5 +1,6 @@
 (ns helm.boatimu
-  (:require [helm.values :as v]
+  (:require [helm.config :as config]
+            [helm.values :as v]
             [utils.quaternion :as q]
             [utils.vector :as vec]))
 
@@ -193,7 +194,8 @@
   (register-values!)
   (let [wt     (js/require "worker_threads")
         path   (js/require "path")
-        worker-path (.resolve path (.cwd js/process) "imu_worker.js")
+        base   (config/backend-dir)
+        worker-path (.resolve path base "imu_worker.js")
         worker (new (.-Worker wt) worker-path)]
     (.on worker "message"
          (fn [raw-msg]

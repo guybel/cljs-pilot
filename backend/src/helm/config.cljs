@@ -9,6 +9,18 @@
 ;;   (config/get-cfg :gains :P)  ; → 0.003
 ;;   (config/all)                ; → map complète
 
+(defn backend-dir []
+  (let [fs  (js/require "fs")
+        p   (js/require "path")
+        cwd (.cwd js/process)
+        candidates [(-> p (.resolve cwd "backend"))
+                    cwd]]
+    (or (some (fn [dir]
+                (when (.existsSync fs (.resolve p dir "config.edn"))
+                  dir))
+              candidates)
+        (.resolve p cwd "backend"))))
+
 ;; Valeurs par défaut — utilisées si config.edn est absent ou incomplet.
 (def ^:private defaults
   {:server  {:port 23322 :ws-port 23323}
