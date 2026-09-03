@@ -22,7 +22,9 @@
   ;; 3. Serveur TCP + WebSocket
   (server/start! (config/get-cfg :server))
 
-  ;; 4. Servo Arduino
+  ;; 4. Servo WiFi (ESP32 S3) ou Serial (Arduino legacy)
+  ;;    Config depuis :servo dans config.edn
+  ;;    {:type :wifi :url "http://192.168.42.10"}
   (servo/start! (config/get-cfg :servo))
 
   ;; 5. Source(s) IMU selon :imu :source dans config.edn
