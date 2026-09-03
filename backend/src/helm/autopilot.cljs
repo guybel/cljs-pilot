@@ -146,4 +146,4 @@
         (let [cmd (basic/process! pilot ap-state)]
           (when enabled
             (v/update-value! "servo.command" cmd)
-            (servo/send-motor-command  cmd)))))))
+            (servo/send-command  cmd)))))))
