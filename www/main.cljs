@@ -320,6 +320,7 @@
           (for [c choices]
             ^{:key (str c)} [:option {:value (str c)} (str c)])]]))))
 
+
 (defn text-input
   "Champ texte commité à la perte de focus ou Entrée.
    Pas de mise à jour live pour éviter le flux de set! à chaque frappe."
