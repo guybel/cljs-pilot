@@ -500,17 +500,21 @@
 (defn- set-heading-target! [delta]
   (let [cur (or (v "ap.heading_command") (v "ap.heading") (v "signalk.heading") 0)
         nxt (mod (+ cur delta) 360)]
+    (js/console.log "[ui] AP target" {:delta delta :from cur :to nxt})
     (set!* "ap.heading_command" nxt)))
 
 (defn- set-servo-command! [delta]
   (let [cur (or (v "servo.command") 511)
         nxt (max 0 (min 1023 (+ cur delta)))]
+    (js/console.log "[ui] servo direct" {:delta delta :from cur :to nxt})
     (set!* "servo.command" nxt)))
 
 (defn- adjust-heading! [delta]
-  (if (v "ap.enabled")
-    (set-heading-target! delta)
-    (set-servo-command! delta)))
+  (let [enabled? (boolean (v "ap.enabled"))]
+    (js/console.log "[ui] adjust-heading" {:delta delta :ap-enabled enabled?})
+    (if enabled?
+      (set-heading-target! delta)
+      (set-servo-command! delta))))
 
 ;; ===========================================================================
 ;; [H] Status bar
