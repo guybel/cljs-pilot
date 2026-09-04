@@ -109,7 +109,6 @@
    "servo.voltage"         1
    "servo.current"         1
    "servo.flags"           0
-   "servo.connected"       0
    "imu.frequency"         1
    "imu.heading"           0.5
    "imu.pitch"             0.5
