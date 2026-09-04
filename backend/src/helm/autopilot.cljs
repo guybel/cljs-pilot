@@ -102,8 +102,18 @@
          :heading-command-time   0)
   (v/update-value! "ap.heading_error" 0)
   (v/update-value! "ap.heading_error_int" 0)
+  (v/update-value! "ap.heading_command_rate" 0)
   (v/update-value! "servo.command" 511)
   (servo/send-command! 0))
+
+(defn- sync-heading-command-to-current! []
+  (let [heading (v/get-value "ap.heading")
+        current (if (number? heading) heading 0)]
+    (v/set-value! "ap.heading_command" current)
+    (swap! state assoc
+           :heading-command-prev current
+           :heading-command-time (js/Date.now)
+           :heading-command-rate 0)))
 
 ;; ---------------------------------------------------------------------------
 ;; Calcul de heading_error et heading_error_int
@@ -156,7 +166,8 @@
 
     (when enabled
       (when (and enabled (not was-enabled))
-        (reset-ap-output!))
+        (reset-ap-output!)
+        (sync-heading-command-to-current!))
       (swap! state assoc :last-enabled enabled)
 
       ;; Calcul du cap courant (ap.heading) selon le mode
