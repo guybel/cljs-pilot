@@ -33,12 +33,12 @@
                 heading-command-rate]} ap-state
         P  heading-error
         PR (* (Math/sign P) (Math/sqrt (Math/abs P)))
-        gain-inputs {:P  P
-                     :I  heading-error-int
-                     :D  headingrate
-                     :DD headingraterate
-                     :PR PR
-                     :FF heading-command-rate}
+        gain-inputs {"P"  P
+                     "I"  heading-error-int
+                     "D"  headingrate
+                     "DD" headingraterate
+                     "PR" PR
+                     "FF" heading-command-rate}
         cmd (pilot/compute pilot-state gain-inputs)]
     (v/update-value! "ap.pilot.basic.command" cmd)
     cmd))

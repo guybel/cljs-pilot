@@ -45,7 +45,7 @@
                          :persistent? true)
     (v/range-property!   "ap.heading_command" 0 -180 360 :persistent? true)
     (v/boolean-property! "ap.enabled"         false)
-    (v/sensor-value!     "ap.heading"         false :directional true)
+    (v/sensor-value!     "ap.heading"         0 :directional true)
     (v/sensor-value!     "ap.heading_error"   0)
     (v/sensor-value!     "ap.heading_error_int" 0)
     (v/sensor-value!     "ap.heading_command_rate" 0)
@@ -98,7 +98,7 @@
         hc       (v/get-value "ap.heading_command")
         mode     (v/get-value "ap.mode")
         windmode (and mode (.includes mode "wind"))]
-    (when (and heading hc)
+    (when (and (number? heading) (number? hc))
       (let [err (-> (resolv (- heading hc))
                     (minmax 60)
                     (#(if windmode (- %) %)))]

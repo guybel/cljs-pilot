@@ -46,9 +46,12 @@
   [pilot-state gain-inputs]
   (reduce
    (fn [cmd [gain-name {:keys [apgain-name sensor-name]}]]
-     (let [input    (get gain-inputs gain-name 0)
-           apgain   (or (v/get-value apgain-name) 0)
-           contrib  (* input apgain)]
+     (let [input-key (keyword gain-name)
+           input     (or (get gain-inputs input-key)
+                         (get gain-inputs gain-name)
+                         0)
+           apgain    (or (v/get-value apgain-name) 0)
+           contrib   (* input apgain)]
        (v/update-value! sensor-name contrib)
        (+ cmd contrib)))
    0

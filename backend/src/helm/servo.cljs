@@ -103,12 +103,7 @@
       (do
         (js/console.log "[servo] Mode: WiFi (ESP32 S3)")
         (wifi:start! (:url servo-cfg)))
-
-      :serial
-      (do
-        (js/console.log "[servo] Mode: Serial (Arduino) - deprecated")
-        (serial:start! (:port servo-cfg) (:baud servo-cfg)))
-
+      
       (js/console.error "[servo] Unknown servo type:" servo-type))))
 
 (defn stop! []
