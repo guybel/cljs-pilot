@@ -99,6 +99,8 @@
    "ap.heading"            0.5
    "ap.heading_error"      0.5
    "ap.heading_command_rate" 0.5
+   "servo.command"         0
+   "servo.connected"       0
    "signalk.heading"       0.5
    "signalk.pitch"         0.5
    "signalk.roll"          0.5
@@ -494,14 +496,20 @@
 
 (defn- set-ap! [enabled?] (set!* "ap.enabled" (boolean enabled?)))
 
+(defn- set-heading-target! [delta]
+  (let [cur (or (v "ap.heading_command") (v "ap.heading") (v "signalk.heading") 0)
+        nxt (mod (+ cur delta) 360)]
+    (set!* "ap.heading_command" nxt)))
+
+(defn- set-servo-command! [delta]
+  (let [cur (or (v "servo.command") 511)
+        nxt (max 0 (min 1023 (+ cur delta)))]
+    (set!* "servo.command" nxt)))
+
 (defn- adjust-heading! [delta]
   (if (v "ap.enabled")
-    (let [cur (or (v "ap.heading_command") (v "ap.heading") (v "signalk.heading") 0)
-          nxt (mod (+ cur delta) 360)]
-      (set!* "ap.heading_command" nxt))
-    (let [cur (or (v "servo.command") 511)
-          nxt (max 0 (min 1023 (+ cur delta)))]
-      (set!* "servo.command" nxt))))
+    (set-heading-target! delta)
+    (set-servo-command! delta)))
 
 ;; ===========================================================================
 ;; [H] Status bar
