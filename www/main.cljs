@@ -495,9 +495,13 @@
 (defn- set-ap! [enabled?] (set!* "ap.enabled" (boolean enabled?)))
 
 (defn- adjust-heading! [delta]
-  (let [cur (or (v "ap.heading_command") (v "ap.heading") (v "signalk.heading") 0)
-        nxt (mod (+ cur delta) 360)]
-    (set!* "ap.heading_command" nxt)))
+  (if (v "ap.enabled")
+    (let [cur (or (v "ap.heading_command") (v "ap.heading") (v "signalk.heading") 0)
+          nxt (mod (+ cur delta) 360)]
+      (set!* "ap.heading_command" nxt))
+    (let [cur (or (v "servo.command") 511)
+          nxt (max 0 (min 1023 (+ cur delta)))]
+      (set!* "servo.command" nxt))))
 
 ;; ===========================================================================
 ;; [H] Status bar

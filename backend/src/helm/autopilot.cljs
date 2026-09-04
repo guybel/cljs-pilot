@@ -158,12 +158,10 @@
                 (not= (v/get-value "ap.heading_error") 0)
                 (not= (v/get-value "ap.heading_error_int") 0))
         (reset-ap-output!))
-      (swap! state assoc :last-enabled false)
+      (swap! state assoc :last-enabled false :pilot-armed false)
       (v/update-value! "ap.heading_error" 0)
       (v/update-value! "ap.heading_error_int" 0)
       (v/update-value! "ap.heading_command_rate" 0)
-      (v/update-value! "servo.command" 511)
-      (servo/send-command! 0)
       nil)
 
     (when enabled
@@ -198,5 +196,4 @@
                         :heading-command-rate (:heading-command-rate @state)}]
         (when pilot
           (let [cmd (basic/process! pilot ap-state)]
-            (v/update-value! "servo.command" cmd)
             (servo/send-command! cmd)))))))

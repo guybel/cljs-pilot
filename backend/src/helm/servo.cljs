@@ -16,9 +16,13 @@
 ;; ---------------------------------------------------------------------------
 
 (defn register-values! []
-  (v/sensor-value!  "servo.command"   0)
+  (v/range-property! "servo.command" 511 0 1023 :persistent? true)
   (v/boolean-value! "servo.connected" false)
   (v/string-value!  "servo.mode"      "unknown"))
+
+(defn speed->normalized [speed]
+  (let [raw (max 0 (min 1023 (double speed)))]
+    (- (/ raw 511.5) 1.0)))
 
 ;; ---------------------------------------------------------------------------
 ;; Mode WiFi (ESP32)
@@ -82,6 +86,11 @@
     :wifi   (wifi:send-command! (:url @state) cmd)
     :serial (serial:send-command! cmd)
     (js/console.warn "[servo] Not connected")))
+
+(defn set-command! [speed]
+  (let [raw (int (js/Math.round (max 0 (min 1023 (double speed)))))]
+    (v/set-value! "servo.command" raw)
+    (send-command! (speed->normalized raw))))
 
 (defn stop-servo! []
   (case (:mode @state)

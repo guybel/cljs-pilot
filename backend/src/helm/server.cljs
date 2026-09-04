@@ -1,6 +1,7 @@
 (ns helm.server
   (:require ["net" :as net]
             [helm.values :as v]
+            [helm.servo :as servo]
             [clojure.string :as str]))
 
 ;; WsServer résolu via js/require — (.-Server ws-lib) retourne undefined avec nbb/CJS
@@ -137,6 +138,13 @@
     (cond
       (nil? entry)
       (write! conn (str "error=unknown value: " name "\n"))
+
+      (= name "servo.command")
+      (let [parsed (try (js/JSON.parse value-str)
+                        (catch :default _ value-str))
+            raw    (js/parseFloat parsed)]
+        (when-not (js/isNaN raw)
+          (servo/set-command! raw)))
 
       (not (get-in entry [:info :writable]))
       (write! conn (str "error=" name " is not writable\n"))
