@@ -90,6 +90,22 @@
                    :heading-command-rate rate)))))))
 
 ;; ---------------------------------------------------------------------------
+;; Reset d’un cycle AP
+;; ---------------------------------------------------------------------------
+
+(defn- reset-ap-output! []
+  (swap! state assoc
+         :heading-error-int      0
+         :heading-error-int-time (js/Date.now)
+         :heading-command-rate   0
+         :heading-command-prev   nil
+         :heading-command-time   0)
+  (v/update-value! "ap.heading_error" 0)
+  (v/update-value! "ap.heading_error_int" 0)
+  (v/update-value! "servo.command" 511)
+  (servo/send-command! 0))
+
+;; ---------------------------------------------------------------------------
 ;; Calcul de heading_error et heading_error_int
 ;; ---------------------------------------------------------------------------
 
@@ -122,7 +138,15 @@
    Les valeurs imu.* sont déjà à jour dans le registre.
    imu-data : {:heading :headingrate :headingraterate :pitch :roll}"
   [{:keys [heading headingrate headingraterate pitch roll]}]
-  (let [now (js/Date.now)]
+  (let [now (js/Date.now)
+        enabled (v/get-value "ap.enabled")
+        was-enabled (:last-enabled @state)]
+    (when (and (not enabled) was-enabled)
+      (reset-ap-output!))
+    (when (and enabled (not was-enabled))
+      (reset-ap-output!))
+    (swap! state assoc :last-enabled enabled)
+
     ;; Calcul du cap courant (ap.heading) selon le mode
     (pilot/compute-heading! nil)
 
@@ -133,8 +157,7 @@
     (update-heading-error! now)
 
     ;; Appel du pilote sélectionné
-    (let [enabled    (v/get-value "ap.enabled")
-          pilot-name (v/get-value "ap.pilot")
+    (let [pilot-name (v/get-value "ap.pilot")
           pilots     (:pilots @state)
           pilot      (get pilots (keyword pilot-name))
           ap-state   {:heading-error        (v/get-value "ap.heading_error")

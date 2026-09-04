@@ -39,6 +39,7 @@
                      "DD" headingraterate
                      "PR" PR
                      "FF" heading-command-rate}
-        cmd (pilot/compute pilot-state gain-inputs)]
-    (v/update-value! "ap.pilot.basic.command" cmd)
-    cmd))
+        cmd (pilot/compute pilot-state gain-inputs)
+        safe-cmd (max -0.5 (min 0.5 cmd))]
+    (v/update-value! "ap.pilot.basic.command" safe-cmd)
+    safe-cmd))
