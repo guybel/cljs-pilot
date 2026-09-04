@@ -141,32 +141,43 @@
   (let [now (js/Date.now)
         enabled (v/get-value "ap.enabled")
         was-enabled (:last-enabled @state)]
-    (when (and (not enabled) was-enabled)
-      (reset-ap-output!))
-    (when (and enabled (not was-enabled))
-      (reset-ap-output!))
-    (swap! state assoc :last-enabled enabled)
+    (when-not enabled
+      (when (or was-enabled
+                (not= (v/get-value "ap.heading_error") 0)
+                (not= (v/get-value "ap.heading_error_int") 0))
+        (reset-ap-output!))
+      (swap! state assoc :last-enabled false)
+      (v/update-value! "ap.heading_error" 0)
+      (v/update-value! "ap.heading_error_int" 0)
+      (v/update-value! "ap.heading_command_rate" 0)
+      (v/update-value! "servo.command" 511)
+      (servo/send-command! 0)
+      nil)
 
-    ;; Calcul du cap courant (ap.heading) selon le mode
-    (pilot/compute-heading! nil)
+    (when enabled
+      (when (and enabled (not was-enabled))
+        (reset-ap-output!))
+      (swap! state assoc :last-enabled enabled)
 
-    ;; Taux de changement du cap commandé
-    (update-heading-command-rate! now)
+      ;; Calcul du cap courant (ap.heading) selon le mode
+      (pilot/compute-heading! nil)
 
-    ;; Erreur de cap et intégrale
-    (update-heading-error! now)
+      ;; Taux de changement du cap commandé
+      (update-heading-command-rate! now)
 
-    ;; Appel du pilote sélectionné
-    (let [pilot-name (v/get-value "ap.pilot")
-          pilots     (:pilots @state)
-          pilot      (get pilots (keyword pilot-name))
-          ap-state   {:heading-error        (v/get-value "ap.heading_error")
-                      :heading-error-int    (:heading-error-int @state)
-                      :headingrate          headingrate
-                      :headingraterate      headingraterate
-                      :heading-command-rate (:heading-command-rate @state)}]
-      (when pilot
-        (let [cmd (basic/process! pilot ap-state)]
-          (when enabled
+      ;; Erreur de cap et intégrale
+      (update-heading-error! now)
+
+      ;; Appel du pilote sélectionné
+      (let [pilot-name (v/get-value "ap.pilot")
+            pilots     (:pilots @state)
+            pilot      (get pilots (keyword pilot-name))
+            ap-state   {:heading-error        (v/get-value "ap.heading_error")
+                        :heading-error-int    (:heading-error-int @state)
+                        :headingrate          headingrate
+                        :headingraterate      headingraterate
+                        :heading-command-rate (:heading-command-rate @state)}]
+        (when pilot
+          (let [cmd (basic/process! pilot ap-state)]
             (v/update-value! "servo.command" cmd)
-            (servo/send-command!  cmd)))))))
+            (servo/send-command! cmd)))))))

@@ -18,11 +18,15 @@ const fs = require('fs');
 const BNO055_ADDR    = 0x29;     // ADR pin HIGH (board Adafruit/CJMCU par défaut)
 const REG_CHIP_ID    = 0x00;
 const REG_ACCEL_DATA = 0x08;     // début bloc 32 octets : accel+mag+gyro+euler+quat
-const REG_CALIB_STAT = 0x35;
+const REG_CALIB_STAT  = 0x35;
+const REG_CALIB_START = 0x55;    // début bloc offsets accel/mag/gyro + rayons (22 octets)
+const CALIB_LEN       = 22;
 const REG_UNIT_SEL   = 0x3B;
 const REG_OPR_MODE   = 0x3D;
 const REG_PWR_MODE   = 0x3E;
 const REG_SYS_TRIG   = 0x3F;
+
+const CALIB_FILE = require('path').resolve(__dirname, 'calibration.json');
 
 const CHIP_ID        = 0xA0;
 const MODE_CONFIG    = 0x00;
@@ -40,11 +44,61 @@ const DEG2RAD     = Math.PI / 180.0;
 const G_TO_MS2    = 9.80665;
 
 // ---------------------------------------------------------------------------
-// Initialisation I2C
+// Calibration persistante — offsets accel/mag/gyro + rayons (22 octets)
 // ---------------------------------------------------------------------------
+// Le capteur doit être en mode CONFIG pour lire/écrire ces registres
+// (datasheet section 3.6.4 / 4.3.61-4.3.66). On ne fait ça qu'une fois
+// au démarrage (restauration) et une fois quand la calib atteint 3/3/3/3
+// (sauvegarde) — jamais pendant la boucle normale à 20Hz.
+
+function readCalibOffsets() {
+  bus.writeByteSync(BNO055_ADDR, REG_OPR_MODE, MODE_CONFIG);
+  sleepMs(25);
+  const buf = Buffer.alloc(CALIB_LEN);
+  bus.readI2cBlockSync(BNO055_ADDR, REG_CALIB_START, CALIB_LEN, buf);
+  bus.writeByteSync(BNO055_ADDR, REG_OPR_MODE, MODE_NDOF);
+  sleepMs(25);
+  return buf;
+}
+
+function writeCalibOffsets(buf) {
+  bus.writeByteSync(BNO055_ADDR, REG_OPR_MODE, MODE_CONFIG);
+  sleepMs(25);
+  for (let i = 0; i < CALIB_LEN; i++) {
+    bus.writeByteSync(BNO055_ADDR, REG_CALIB_START + i, buf[i]);
+  }
+  bus.writeByteSync(BNO055_ADDR, REG_OPR_MODE, MODE_NDOF);
+  sleepMs(25);
+}
+
+function saveCalibration() {
+  try {
+    const buf = readCalibOffsets();
+    fs.writeFileSync(CALIB_FILE, JSON.stringify({ offsets: [...buf] }));
+    parentPort.postMessage({ type: 'status', msg: `Calibration BNO055 sauvegardée → ${CALIB_FILE}` });
+  } catch (e) {
+    parentPort.postMessage({ type: 'status', msg: `Erreur sauvegarde calibration: ${e.message}` });
+  }
+}
+
+function restoreCalibration() {
+  try {
+    if (!fs.existsSync(CALIB_FILE)) return false;
+    const { offsets } = JSON.parse(fs.readFileSync(CALIB_FILE, 'utf8'));
+    if (!Array.isArray(offsets) || offsets.length !== CALIB_LEN) return false;
+    writeCalibOffsets(Buffer.from(offsets));
+    parentPort.postMessage({ type: 'status', msg: `Calibration BNO055 restaurée depuis ${CALIB_FILE}` });
+    return true;
+  } catch (e) {
+    parentPort.postMessage({ type: 'status', msg: `Erreur restauration calibration: ${e.message}` });
+    return false;
+  }
+}
+
 let bus = null;
 let useRealIMU = false;
 let lastCalibSent = -1;
+let calibSaved = false; // évite de ré-écrire le fichier en boucle une fois à 3/3/3/3
 
 function sleepMs(ms) {
   const end = Date.now() + ms;
@@ -81,7 +135,13 @@ function busInit() {
     sleepMs(25); // datasheet : 7-19 ms après changement de mode
 
     useRealIMU = true;
-    parentPort.postMessage({ type: 'status', msg: 'BNO055 initialisé en mode NDOF — calibration auto en cours (bouge le bateau pour finaliser sys/mag)' });
+    const restored = restoreCalibration();
+    parentPort.postMessage({
+      type: 'status',
+      msg: restored
+        ? 'BNO055 initialisé en mode NDOF — calibration restaurée depuis le fichier'
+        : 'BNO055 initialisé en mode NDOF — calibration auto en cours (bouge le bateau pour finaliser sys/mag)',
+    });
   } catch (e) {
     useRealIMU = false;
     parentPort.postMessage({ type: 'status', msg: `Erreur init BNO055 (${e.message}) — mode simulation` });
@@ -200,6 +260,10 @@ function step() {
           type: 'status',
           msg:  `BNO055 calib sys=${c.sys}/3 gyr=${c.gyr}/3 acc=${c.acc}/3 mag=${c.mag}/3`,
         });
+      }
+      if (!calibSaved && c.sys === 3 && c.gyr === 3 && c.acc === 3 && c.mag === 3) {
+        calibSaved = true;
+        saveCalibration();
       }
       parentPort.postMessage({
         type:        'data',
