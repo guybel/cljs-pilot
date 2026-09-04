@@ -26,6 +26,7 @@
          :heading-command-time   0
          :last-heading           nil
          :last-enabled           false
+         :pilot-armed            false
          :pilots                 {}
          :initialized?           false}))
 
@@ -113,7 +114,8 @@
     (swap! state assoc
            :heading-command-prev current
            :heading-command-time (js/Date.now)
-           :heading-command-rate 0)))
+           :heading-command-rate 0
+           :pilot-armed false)))
 
 ;; ---------------------------------------------------------------------------
 ;; Calcul de heading_error et heading_error_int
@@ -172,6 +174,12 @@
 
       ;; Calcul du cap courant (ap.heading) selon le mode
       (pilot/compute-heading! nil)
+
+      ;; Première frame après activation : on repart proprement du cap courant,
+      ;; sans héritage d’ancienne commande ni d’erreur résiduelle.
+      (when (and enabled (not (:pilot-armed @state)))
+        (sync-heading-command-to-current!)
+        (swap! state assoc :pilot-armed true))
 
       ;; Taux de changement du cap commandé
       (update-heading-command-rate! now)
