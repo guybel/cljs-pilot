@@ -40,6 +40,8 @@
                      "PR" PR
                      "FF" heading-command-rate}
         cmd (pilot/compute pilot-state gain-inputs)
-        safe-cmd (max -0.5 (min 0.5 cmd))]
+        ;; Le moteur/servo accepte une commande normalisée complète dans [-1, 1].
+        ;; Le clamp à ±0.5 créait une commande trop faible pour corriger correctement.
+        safe-cmd (max -1.0 (min 1.0 cmd))]
     (v/update-value! "ap.pilot.basic.command" safe-cmd)
     safe-cmd))

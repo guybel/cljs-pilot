@@ -127,12 +127,13 @@
         mode     (v/get-value "ap.mode")
         windmode (and mode (.includes mode "wind"))]
     (when (and (number? heading) (number? hc))
-      (let [err (-> (resolv (- heading hc))
-                    (minmax 60)
-                    (#(if windmode (- %) %)))]
+      (let [raw-err (-> (resolv (- heading hc))
+                        (minmax 60))
+            err     (let [e (if windmode (- raw-err) raw-err)]
+                      (if (< (js/Math.abs e) 2) 0 e))]
         (v/update-value! "ap.heading_error" err)
 
-        ;; Intégrale : dt limité à 1s
+        ;; Intégrale : dt limité à 1s, sans accumulation dans la zone morte ±2°.
         (let [{:keys [heading-error-int heading-error-int-time]} @state
               dt  (min (/ (- now heading-error-int-time) 1000.0) 1.0)
               new-int (minmax (+ heading-error-int (* (/ err 1500) dt)) 5)]
