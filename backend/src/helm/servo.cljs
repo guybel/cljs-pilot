@@ -8,6 +8,8 @@
 (defonce state
   (atom {:connected false
          :last-speed 0
+         :last-send-ms 0
+         :min-send-interval-ms 200
          :mode nil
          :url nil}))
 
@@ -30,20 +32,36 @@
 
 (defn wifi:send-command!
   "Envoie une commande normalisée cmd ∈ [-1, 1] à l'ESP32.
-   Convertit en speed [0, 1023]."
+   Convertit en speed [0, 1023].
+   Limite le débit à ~5Hz (200ms) pour éviter d'envoyer des ordres identiques 
+   à 20Hz quand la commande est stable."
   [url cmd]
   (when (:connected @state)
-    (let [clamped (max -1.0 (min 1.0 (double cmd)))
-          speed   (int (* (+ clamped 1.0) 511.5))]
-      (swap! state assoc :last-speed speed)
-      (v/update-value! "servo.command" speed)
+    (let [clamped     (max -1.0 (min 1.0 (double cmd)))
+          speed       (int (* (+ clamped 1.0) 511.5))
+          last-speed  (:last-speed @state)
+          now         (js/Date.now)
+          last-send   (:last-send-ms @state)
+          min-interval (:min-send-interval-ms @state)
+          elapsed     (- now last-send)]
+      (cond
+        (= last-speed speed)
+        (js/console.debug "[servo:wifi] Ignoring duplicate motor speed:" speed)
 
-      (-> (js/fetch (str url "/motor/" speed))
-          (.then #(.text %))
-          (.then (fn [response]
-                   (js/console.log "[servo:wifi] Motor speed:" speed "→" response)))
-          (.catch (fn [e]
-                    (js/console.error "[servo:wifi] HTTP error:" (.-message e))))))))
+        (< elapsed min-interval)
+        (js/console.debug "[servo:wifi] Throttling motor update:" speed "(next allowed in" (- min-interval elapsed) "ms)")
+
+        :else
+        (do
+          (swap! state assoc :last-speed speed :last-send-ms now)
+          (v/update-value! "servo.command" speed)
+
+          (-> (js/fetch (str url "/motor/" speed))
+              (.then #(.text %))
+              (.then (fn [response]
+                       (js/console.log "[servo:wifi] Motor speed:" speed "→" response)))
+              (.catch (fn [e]
+                        (js/console.error "[servo:wifi] HTTP error:" (.-message e))))))))))
 
 (defn wifi:stop! []
   (when (:connected @state)
