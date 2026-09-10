@@ -43,7 +43,7 @@
         ;; Le moteur/servo accepte une commande normalisée complète dans [-1, 1].
         ;; On filtre aussi les très petites oscillations autour du neutre avant d'envoyer
         ;; la commande, sinon le pilot envoie des micro-corrections en boucle.
-        command-deadband 0.08
+        command-deadband 0.02
         safe-cmd (let [c (max -1.0 (min 1.0 cmd))]
                    (if (<= (js/Math.abs c) command-deadband)
                      0.0
