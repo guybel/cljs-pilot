@@ -10,8 +10,8 @@
          :last-speed 0
          :last-send-ms 0
          :min-send-interval-ms 1000
-         :small-change-threshold 15
-         :large-change-threshold 30
+         :neutral-zone-threshold 25
+         :large-change-threshold 40
          :mode nil
          :url nil}))
 
@@ -35,29 +35,30 @@
 (defn wifi:send-command!
   "Envoie une commande normalisée cmd ∈ [-1, 1] à l'ESP32.
    Convertit en speed [0, 1023].
-   On ignore les micro-corrections (< 15 unités raw) et on limite l'émission à 1 commande/sec,
-   pour éviter les micro-corrections trop faibles et le spam répétitif."
+   Aucune micro-correction: on ignore tout ordre trop proche de la position neutre (511 ± 25)
+   et on limite le débit à ~1 commande/sec pour les vrais mouvements significatifs."
   [url cmd]
   (when (:connected @state)
     (let [clamped              (max -1.0 (min 1.0 (double cmd)))
           speed                (int (* (+ clamped 1.0) 511.5))
+          centered             (js/Math.abs (- speed 511))
           last-speed           (:last-speed @state)
-          small-change-thresh  (:small-change-threshold @state)
+          neutral-threshold    (:neutral-zone-threshold @state)
           large-change-thresh  (:large-change-threshold @state)
           delta                (js/Math.abs (- speed last-speed))
           now                  (js/Date.now)
           last-send            (:last-send-ms @state)
           min-interval         (:min-send-interval-ms @state)
           elapsed              (- now last-send)
-          is-small-change?     (< delta small-change-thresh)
+          is-neutral?          (< centered neutral-threshold)
           is-large-change?     (>= delta large-change-thresh)
           is-throttled?        (and (not is-large-change?) (< elapsed min-interval))]
       (cond
         (= last-speed speed)
         (js/console.debug "[servo:wifi] Ignoring duplicate motor speed:" speed)
 
-        is-small-change?
-        (js/console.debug "[servo:wifi] Ignoring micro-change:" last-speed "→" speed "(delta=" delta ")")
+        is-neutral?
+        (js/console.debug "[servo:wifi] Ignoring neutral micro-movement: raw=" speed "(centered=" centered ")")
 
         is-throttled?
         (js/console.debug "[servo:wifi] Throttling motor update:" speed "(next allowed in" (- min-interval elapsed) "ms)")
