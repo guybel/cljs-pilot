@@ -41,7 +41,12 @@
                      "FF" heading-command-rate}
         cmd (pilot/compute pilot-state gain-inputs)
         ;; Le moteur/servo accepte une commande normalisée complète dans [-1, 1].
-        ;; Le clamp à ±0.5 créait une commande trop faible pour corriger correctement.
-        safe-cmd (max -1.0 (min 1.0 cmd))]
+        ;; On filtre aussi les très petites oscillations autour du neutre avant d'envoyer
+        ;; la commande, sinon le pilot envoie des micro-corrections en boucle.
+        command-deadband 0.08
+        safe-cmd (let [c (max -1.0 (min 1.0 cmd))]
+                   (if (<= (js/Math.abs c) command-deadband)
+                     0.0
+                     c))]
     (v/update-value! "ap.pilot.basic.command" safe-cmd)
     safe-cmd))

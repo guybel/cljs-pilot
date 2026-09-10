@@ -8,7 +8,7 @@
 (defonce state
   (atom {:connected false
          :last-speed 0
-         :neutral-zone-threshold 50
+         :neutral-zone-threshold 20
          :mode nil
          :url nil}))
 
