@@ -16,7 +16,7 @@
   ([gains]
    (let [g (merge gain-defaults gains)]
      (-> (pilot/make-pilot "basic")
-         (pilot/add-pos-gain! "P"  (:P  g) 0.03)
+         (pilot/add-pos-gain! "P"  (:P  g) 0.1)
          (pilot/add-pos-gain! "I"  (:I  g) 0.05)
          (pilot/add-pos-gain! "D"  (:D  g) 0.24)
          (pilot/add-pos-gain! "DD" (:DD g) 0.24)
