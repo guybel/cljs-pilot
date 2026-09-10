@@ -9,8 +9,8 @@
   (atom {:connected false
          :last-speed 0
          :last-send-ms 0
-         :min-send-interval-ms 200
-         :small-change-threshold 10
+         :min-send-interval-ms 1000
+         :small-change-threshold 15
          :large-change-threshold 30
          :mode nil
          :url nil}))
@@ -35,8 +35,8 @@
 (defn wifi:send-command!
   "Envoie une commande normalisée cmd ∈ [-1, 1] à l'ESP32.
    Convertit en speed [0, 1023].
-   On ignore les micro-corrections (< 10 unités raw) et on laisse passer les grands
-   changements immédiatement. Le débit est ensuite limité à ~5Hz par sécurité."
+   On ignore les micro-corrections (< 15 unités raw) et on limite l'émission à 1 commande/sec,
+   pour éviter les micro-corrections trop faibles et le spam répétitif."
   [url cmd]
   (when (:connected @state)
     (let [clamped              (max -1.0 (min 1.0 (double cmd)))
