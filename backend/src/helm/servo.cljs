@@ -45,7 +45,12 @@
         (= last-speed speed)
         (js/console.debug "[servo:wifi] Ignoring duplicate motor speed:" speed)
 
-        (< centered neutral-threshold)
+        ;; Le stop exact au centre (speed=511, ex: OFF ou reset-ap-output!) doit
+        ;; TOUJOURS partir, meme si l'ecart au centre est sous le seuil de zone
+        ;; neutre - sinon un arret volontaire peut etre silencieusement ignore
+        ;; et le moteur continue de tourner sur la derniere commande active
+        ;; jusqu'au watchdog reseau de l'ESP32 (delai de plusieurs secondes).
+        (and (< centered neutral-threshold) (not= speed 511))
         (js/console.debug "[servo:wifi] Ignoring neutral micro-movement: raw=" speed "(centered=" centered ")")
 
         :else
@@ -127,7 +132,7 @@
       (do
         (js/console.log "[servo] Mode: WiFi (ESP32 S3)")
         (wifi:start! (:url servo-cfg)))
-      
+
       (js/console.error "[servo] Unknown servo type:" servo-type))))
 
 (defn stop! []
