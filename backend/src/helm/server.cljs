@@ -132,27 +132,47 @@
           :else                  (remove-watch! conn name))))
     (catch :default e
       (write! conn (str "error=invalid watch: " e "\n")))))
+;; A ajouter dans handle-set-cmd! de server.clj, dans le (cond ...)
+;; AVANT le cas (= name "servo.command") ou juste apres, l'ordre n'importe pas
+;; tant que c'est avant le cas generique (not (get-in entry [:info :writable]))
+;;
+;; NOTE: ap.heading_command.adjust n'est PAS une entree du registre (v/register!),
+;; c'est juste un nom de message special intercepte ici - handle-set-cmd! recoit
+;; son "entry" via (v/get-entry name), qui sera nil pour ce nom. Il faut donc
+;; traiter ce cas AVANT le (nil? entry) qui renverrait autrement une erreur.
 
 (defn- handle-set-cmd! [conn name value-str]
-  (let [entry (v/get-entry name)]
-    (cond
-      (nil? entry)
-      (write! conn (str "error=unknown value: " name "\n"))
+  (cond
+    ;; --- NOUVEAU: increment relatif du cap cible ---
+    (= name "ap.heading_command.adjust")
+    (let [delta (js/parseFloat value-str)]
+      (when-not (js/isNaN delta)
+        (let [current (v/get-value "ap.heading_command")
+              raw-new (+ current delta)
+              ;; normalise dans 0-360
+              wrapped (mod (+ raw-new 360) 360)]
+          (v/set-value! "ap.heading_command" wrapped))))
 
-      (= name "servo.command")
-      (let [parsed (try (js/JSON.parse value-str)
-                        (catch :default _ value-str))
-            raw    (js/parseFloat parsed)]
-        (when-not (js/isNaN raw)
-          (servo/set-command! raw)))
+    :else
+    (let [entry (v/get-entry name)]
+      (cond
+        (nil? entry)
+        (write! conn (str "error=unknown value: " name "\n"))
 
-      (not (get-in entry [:info :writable]))
-      (write! conn (str "error=" name " is not writable\n"))
+        (= name "servo.command")
+        (let [parsed (try (js/JSON.parse value-str)
+                          (catch :default _ value-str))
+              raw    (js/parseFloat parsed)]
+          (when-not (js/isNaN raw)
+            (servo/set-command! raw)))
 
-      :else
-      (let [parsed (try (js/JSON.parse value-str)
-                        (catch :default _ value-str))]
-        (v/set-value! name parsed)))))
+        (not (get-in entry [:info :writable]))
+        (write! conn (str "error=" name " is not writable\n"))
+
+        :else
+        (let [parsed (try (js/JSON.parse value-str)
+                          (catch :default _ value-str))]
+          (v/set-value! name parsed))))))
 
 (defn- handle-line! [conn line]
   (when-not (str/blank? line)

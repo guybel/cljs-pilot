@@ -42,6 +42,8 @@ SPEED_SLOW = 350
 
 NETWORK_TIMEOUT_MS = 1500
 DEBOUNCE_MS = 150
+BACKEND_HOST = None  # ex: "192.168.1.10" ; laisser None pour desactiver la notif au backend
+BACKEND_PORT = 23322
 
 # Seuil de courant (en unite brute ADC 0-4095) au-dela duquel on considere
 # que le verin est bloque/en butee. A CALIBRER: mesure la valeur ADC normale
@@ -56,6 +58,7 @@ CURRENT_SAMPLE_MS = 20
 # ETAT GLOBAL
 # ---------------------------------------------------------------------------
 motor_enabled = False
+automation_mode = False        # True quand l'autopilot / le pilot est actif
 fault_latched = False          # True apres un declenchement surintensite,
                                  # necessite un cycle OFF/ON pour reinitialiser
 current_over_since_ms = None
@@ -65,6 +68,24 @@ last_network_cmd_ms = 0
 last_button_ms = 0
 manual_override_active = False
 current_direction = 0          # +1, -1 ou 0, pour savoir quel IS surveiller
+
+
+def notify_backend_state(enabled):
+    """Notifies the backend that the pilot automation is ON or OFF.
+    The backend protocol expects lines like: ap.enabled=true\n
+    """
+    if BACKEND_HOST is None:
+        return
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1)
+        s.connect((BACKEND_HOST, BACKEND_PORT))
+        payload = f"ap.enabled={'true' if enabled else 'false'}\n".encode()
+        s.sendall(payload)
+        s.close()
+    except Exception:
+        # Ne bloque pas le controleur si le backend n'est pas present.
+        pass
 
 
 def hard_stop():
@@ -102,7 +123,19 @@ def check_overcurrent():
 def set_motor(speed):
     global current_direction
 
-    if not motor_enabled or fault_latched:
+    if fault_latched:
+        hard_stop()
+        current_direction = 0
+        return
+
+    if not motor_enabled and not manual_override_active:
+        hard_stop()
+        current_direction = 0
+        return
+
+    # Une commande distante / autopilot doit rester bloquee tant que le mode
+    # automation n'est pas relance explicitement par ON.
+    if not automation_mode and not manual_override_active:
         hard_stop()
         current_direction = 0
         return
@@ -125,7 +158,13 @@ def set_motor(speed):
 
 
 def set_motor_from_raw(raw_value):
-    global last_network_speed, last_network_cmd_ms
+    global last_network_speed, last_network_cmd_ms, manual_override_active
+
+    if not automation_mode:
+        last_network_speed = 0
+        manual_override_active = False
+        hard_stop()
+        return
 
     centered = raw_value - CENTER
     if abs(centered) <= DEADBAND:
@@ -153,37 +192,65 @@ def check_network_watchdog():
 
 
 def check_buttons():
-    global motor_enabled, manual_override_active, last_button_ms, fault_latched
+    global motor_enabled, manual_override_active, last_button_ms, fault_latched, automation_mode
 
     now = time.ticks_ms()
 
     if BTN_ONOFF.value() == 0 and time.ticks_diff(now, last_button_ms) > DEBOUNCE_MS:
-        motor_enabled = not motor_enabled
+        automation_mode = not automation_mode
+        motor_enabled = automation_mode
+        manual_override_active = False
+        last_network_speed = 0
+        current_direction = 0
         last_button_ms = now
-        if motor_enabled:
+        if automation_mode:
             fault_latched = False   # reinitialise le fault a chaque activation
-            print("Moteur: ON (fault reinitialise)")
+            print("Mode automation: ON")
+            notify_backend_state(True)
         else:
             hard_stop()
-            print("Moteur: OFF")
+            print("Mode automation: OFF")
+            notify_backend_state(False)
         time.sleep_ms(DEBOUNCE_MS)
 
-    if not motor_enabled or fault_latched:
+    # Si le mode automation est desactive, on autorise le mouvement manuel direct
+    # depuis le bouton physique. Sinon, les boutons ne doivent pas contourner le pilot.
+    if fault_latched:
+        manual_override_active = False
+        return
+
+    if automation_mode and not motor_enabled:
         manual_override_active = False
         return
 
     if BTN_PLUS10.value() == 0:
-        manual_override_active = True
-        set_motor(SPEED_FAST)
+        if not automation_mode:
+            manual_override_active = True
+            set_motor(SPEED_FAST)
+        else:
+            manual_override_active = False
+            hard_stop()
     elif BTN_MINUS10.value() == 0:
-        manual_override_active = True
-        set_motor(-SPEED_FAST)
+        if not automation_mode:
+            manual_override_active = True
+            set_motor(-SPEED_FAST)
+        else:
+            manual_override_active = False
+            hard_stop()
     elif BTN_PLUS1.value() == 0:
-        manual_override_active = True
-        set_motor(SPEED_SLOW)
+        if not automation_mode:
+            manual_override_active = True
+            set_motor(SPEED_SLOW)
+        else:
+            manual_override_active = False
+            hard_stop()
     elif BTN_MINUS1.value() == 0:
-        manual_override_active = True
-        set_motor(-SPEED_SLOW)
+        if not automation_mode:
+            manual_override_active = True
+            set_motor(-SPEED_SLOW)
+        else:
+            manual_override_active = False
+            hard_stop()
     else:
         if manual_override_active:
             manual_override_active = False
