@@ -10,6 +10,8 @@
          :last-speed 0
          :last-send-ms 0
          :min-send-interval-ms 200
+         :small-change-threshold 10
+         :large-change-threshold 30
          :mode nil
          :url nil}))
 
@@ -33,22 +35,31 @@
 (defn wifi:send-command!
   "Envoie une commande normalisée cmd ∈ [-1, 1] à l'ESP32.
    Convertit en speed [0, 1023].
-   Limite le débit à ~5Hz (200ms) pour éviter d'envoyer des ordres identiques 
-   à 20Hz quand la commande est stable."
+   On ignore les micro-corrections (< 10 unités raw) et on laisse passer les grands
+   changements immédiatement. Le débit est ensuite limité à ~5Hz par sécurité."
   [url cmd]
   (when (:connected @state)
-    (let [clamped     (max -1.0 (min 1.0 (double cmd)))
-          speed       (int (* (+ clamped 1.0) 511.5))
-          last-speed  (:last-speed @state)
-          now         (js/Date.now)
-          last-send   (:last-send-ms @state)
-          min-interval (:min-send-interval-ms @state)
-          elapsed     (- now last-send)]
+    (let [clamped              (max -1.0 (min 1.0 (double cmd)))
+          speed                (int (* (+ clamped 1.0) 511.5))
+          last-speed           (:last-speed @state)
+          small-change-thresh  (:small-change-threshold @state)
+          large-change-thresh  (:large-change-threshold @state)
+          delta                (js/Math.abs (- speed last-speed))
+          now                  (js/Date.now)
+          last-send            (:last-send-ms @state)
+          min-interval         (:min-send-interval-ms @state)
+          elapsed              (- now last-send)
+          is-small-change?     (< delta small-change-thresh)
+          is-large-change?     (>= delta large-change-thresh)
+          is-throttled?        (and (not is-large-change?) (< elapsed min-interval))]
       (cond
         (= last-speed speed)
         (js/console.debug "[servo:wifi] Ignoring duplicate motor speed:" speed)
 
-        (< elapsed min-interval)
+        is-small-change?
+        (js/console.debug "[servo:wifi] Ignoring micro-change:" last-speed "→" speed "(delta=" delta ")")
+
+        is-throttled?
         (js/console.debug "[servo:wifi] Throttling motor update:" speed "(next allowed in" (- min-interval elapsed) "ms)")
 
         :else
