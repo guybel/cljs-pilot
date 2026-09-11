@@ -27,7 +27,7 @@
    :imu     {:source :both :rate 20}
    :signalk {:enabled false :host "localhost" :port 3000}
    :servo   {:port "/dev/ttyUSB0" :baud 38400}
-   :gains   {:P 0.003 :I 0.0 :D 0.09 :DD 0.075 :PR 0.005 :FF 0.6}})
+   :gains   {:P 0.3 :I 0.0 :D 0.09 :DD 0.075 :PR 0.005 :FF 0.6}})
 
 (defonce ^:private loaded (atom defaults))
 
