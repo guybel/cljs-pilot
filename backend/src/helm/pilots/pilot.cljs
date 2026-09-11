@@ -9,9 +9,6 @@
 ;;
 ;; gains est une map : {gain-name {:apgain-name str :sensor-name str}}
 
-(def ^:private gain-defaults
-  {:P 0.6 :I 0.0 :D 0.1 :DD 0.1 :PR 0.01 :FF 1.2})
-
 (defn make-pilot
   "Crée l'état d'un pilote. name = 'basic', 'rate', etc."
   [name]
@@ -86,4 +83,16 @@
       (if-let [fallback (mode-fallbacks m)]
         (recur fallback)
         m))))
+
+;; SUGGESTED EDIT:
+;; Add logging for motor speed updates
+(defn update-motor-speed!
+  "Updates the motor speed and logs it."
+  [speed]
+  (println "[servo:wifi] Motor speed: " speed " → OK")
+  (v/set-value! "motor.speed" speed))
+
+;; Example usage of update-motor-speed!
+(update-motor-speed! 1023)
+(update-motor-speed! 987)
 
