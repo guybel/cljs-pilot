@@ -9,6 +9,18 @@
 (def ^:private gain-defaults
   {:P 0.003 :I 0.0 :D 0.09 :DD 0.075 :PR 0.005 :FF 0.6})
 
+;; Etat de persistance pour l'hysteresis anti-bruit (voir process! plus bas).
+;; Suit depuis combien de temps une erreur soutenue dans une direction donnee
+;; est observee, avant d'autoriser le plancher de commande a se declencher.
+(defonce ^:private sustain-state (atom {:direction 0 :since-ms 0}))
+
+(def ^:private sustain-duration-ms
+  "Duree pendant laquelle une commande doit rester au-dela du deadband,
+   dans la MEME direction, avant de declencher le plancher. Filtre le bruit
+   IMU transitoire (qui change de signe rapidement) sans retarder les
+   vraies corrections de cap (qui persistent par nature)."
+  400)
+
 (defn init!
   "Enregistre les gains du pilote basic et retourne son état.
    gains : map optionnelle depuis config/get-cfg :gains — ex {:P 0.003 :D 0.09 ...}"
@@ -42,34 +54,37 @@
         cmd (pilot/compute pilot-state gain-inputs)
         ;; Le moteur/servo accepte une commande normalisée complete dans [-1, 1].
         ;;
-        ;; Deux problemes distincts geres ici :
-        ;; 1) command-deadband : ignore les micro-oscillations autour du neutre
-        ;;    (sinon le pilot envoie des corrections en boucle pour du bruit).
-        ;; 2) command-floor : le verin a un seuil de frottement statique (stiction) -
+        ;; Trois protections distinctes gerees ici :
+        ;; 1) command-deadband : ignore les micro-oscillations autour du neutre.
+        ;; 2) sustain-duration-ms : une commande qui depasse le deadband doit
+        ;;    persister dans la MEME direction pendant sustain-duration-ms avant
+        ;;    de declencher quoi que ce soit. Sans ca, le moindre pic de bruit
+        ;;    IMU (meme bateau parfaitement immobile) est amplifie par le
+        ;;    plancher ci-dessous et produit des corrections visibles pour rien.
+        ;; 3) command-floor : le verin a un seuil de frottement statique (stiction) -
         ;;    en dessous d'une certaine puissance, le courant passe mais le verin
-        ;;    ne bouge pas ou presque pas. Sans plancher, une petite erreur de cap
-        ;;    produit une commande trop faible pour produire un mouvement reel.
-        ;;
-        ;; Le remappage garantit qu'au-dela du deadband, la commande demarre
-        ;; directement a command-floor (mouvement immediatement significatif)
-        ;; puis continue a augmenter proportionnellement jusqu'a 1.0 pour les
-        ;; grosses erreurs - on garde la proportionnalite, juste decalee.
+        ;;    ne bouge pas ou presque pas. Une fois qu'une correction est jugee
+        ;;    reelle (point 2), elle demarre directement a command-floor plutot
+        ;;    que de monter trop doucement pour produire un mouvement reel.
         command-deadband 0.02
-        command-floor    0.35   ; A CALIBRER: teste au REPL/slider le seuil reel
-                                  ; de mouvement visible de ton verin, mets ce chiffre
-                                  ; legerement au-dessus.
-        safe-cmd (let [c      (max -1.0 (min 1.0 cmd))
-                       mag    (js/Math.abs c)
-                       sign   (if (neg? c) -1.0 1.0)]
-                   (cond
-                     (<= mag command-deadband)
-                     0.0
-
-                     :else
-                     (let [scaled (+ command-floor
-                                     (* (- 1.0 command-floor)
-                                        (/ (- mag command-deadband)
-                                           (- 1.0 command-deadband))))]
-                       (* sign (min scaled 1.0)))))]
+        command-floor    0.35   ; A CALIBRER selon le seuil de mouvement reel du verin
+        now (js/Date.now)
+        mag (js/Math.abs cmd)
+        raw-direction (cond (> cmd command-deadband) 1
+                            (< cmd (- command-deadband)) -1
+                            :else 0)
+        _ (when (not= raw-direction (:direction @sustain-state))
+            ;; La direction a change (ou on repasse a zero) : on redemarre le chrono.
+            (reset! sustain-state {:direction raw-direction :since-ms now}))
+        sustained? (and (not= raw-direction 0)
+                        (>= (- now (:since-ms @sustain-state)) sustain-duration-ms))
+        safe-cmd (if-not sustained?
+                   0.0
+                   (let [sign (if (neg? cmd) -1.0 1.0)
+                         scaled (+ command-floor
+                                   (* (- 1.0 command-floor)
+                                      (/ (- mag command-deadband)
+                                         (- 1.0 command-deadband))))]
+                     (* sign (min (max scaled command-floor) 1.0))))]
     (v/update-value! "ap.pilot.basic.command" safe-cmd)
     safe-cmd))
