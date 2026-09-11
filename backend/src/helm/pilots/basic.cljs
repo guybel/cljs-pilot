@@ -7,7 +7,7 @@
 ;; Gains PID complets : P, I, D, DD, PR, FF
 
 (def ^:private gain-defaults
-  {:P 0.003 :I 0.0 :D 0.09 :DD 0.075 :PR 0.005 :FF 0.6})
+  {:P 0.03 :I 0.0 :D 0.09 :DD 0.075 :PR 0.005 :FF 0.6})
 
 ;; Etat de persistance pour l'hysteresis anti-bruit (voir process! plus bas).
 ;; Suit depuis combien de temps une erreur soutenue dans une direction donnee
@@ -19,7 +19,7 @@
    dans la MEME direction, avant de declencher le plancher. Filtre le bruit
    IMU transitoire (qui change de signe rapidement) sans retarder les
    vraies corrections de cap (qui persistent par nature)."
-  400)
+  200)
 
 (defn init!
   "Enregistre les gains du pilote basic et retourne son état.
@@ -67,7 +67,7 @@
         ;;    reelle (point 2), elle demarre directement a command-floor plutot
         ;;    que de monter trop doucement pour produire un mouvement reel.
         command-deadband 0.02
-        command-floor    0.35   ; A CALIBRER selon le seuil de mouvement reel du verin
+        command-floor    0.15   ; A CALIBRER selon le seuil de mouvement reel du verin
         now (js/Date.now)
         mag (js/Math.abs cmd)
         raw-direction (cond (> cmd command-deadband) 1
