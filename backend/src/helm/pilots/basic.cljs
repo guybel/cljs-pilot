@@ -7,7 +7,7 @@
 ;; Gains PID complets : P, I, D, DD, PR, FF
 
 (def ^:private gain-defaults
-  {:P 0.3 :I 0.0 :D 0.09 :DD 0.075 :PR 0.005 :FF 0.6})
+  {:P 0.003 :I 0.0 :D 0.09 :DD 0.075 :PR 0.005 :FF 0.6})
 
 ;; Etat de persistance pour l'hysteresis anti-bruit (voir process! plus bas).
 ;; Suit depuis combien de temps une erreur soutenue dans une direction donnee
@@ -28,7 +28,7 @@
   ([gains]
    (let [g (merge gain-defaults gains)]
      (-> (pilot/make-pilot "basic")
-         (pilot/add-pos-gain! "P"  (:P  g) 0.3)
+         (pilot/add-pos-gain! "P"  (:P  g) 0.03)
          (pilot/add-pos-gain! "I"  (:I  g) 0.05)
          (pilot/add-pos-gain! "D"  (:D  g) 0.24)
          (pilot/add-pos-gain! "DD" (:DD g) 0.24)
@@ -43,48 +43,19 @@
   (let [{:keys [heading-error heading-error-int
                 headingrate headingraterate
                 heading-command-rate]} ap-state
+        ;; calcul identique a pypilot/pilots/basic.py
         P  heading-error
-        PR (* (Math/sign P) (Math/sqrt (Math/abs P)))
+        PR (* (Math/sign heading-error)
+              (Math/sqrt (Math/abs heading-error)))
         gain-inputs {"P"  P
                      "I"  heading-error-int
                      "D"  headingrate
                      "DD" headingraterate
                      "PR" PR
                      "FF" heading-command-rate}
-        cmd (pilot/compute pilot-state gain-inputs)
-        ;; Le moteur/servo accepte une commande normalisée complete dans [-1, 1].
-        ;;
-        ;; Trois protections distinctes gerees ici :
-        ;; 1) command-deadband : ignore les micro-oscillations autour du neutre.
-        ;; 2) sustain-duration-ms : une commande qui depasse le deadband doit
-        ;;    persister dans la MEME direction pendant sustain-duration-ms avant
-        ;;    de declencher quoi que ce soit. Sans ca, le moindre pic de bruit
-        ;;    IMU (meme bateau parfaitement immobile) est amplifie par le
-        ;;    plancher ci-dessous et produit des corrections visibles pour rien.
-        ;; 3) command-floor : le verin a un seuil de frottement statique (stiction) -
-        ;;    en dessous d'une certaine puissance, le courant passe mais le verin
-        ;;    ne bouge pas ou presque pas. Une fois qu'une correction est jugee
-        ;;    reelle (point 2), elle demarre directement a command-floor plutot
-        ;;    que de monter trop doucement pour produire un mouvement reel.
-        command-deadband 0.02
-        command-floor    0.15   ; A CALIBRER selon le seuil de mouvement reel du verin
-        now (js/Date.now)
-        mag (js/Math.abs cmd)
-        raw-direction (cond (> cmd command-deadband) 1
-                            (< cmd (- command-deadband)) -1
-                            :else 0)
-        _ (when (not= raw-direction (:direction @sustain-state))
-            ;; La direction a change (ou on repasse a zero) : on redemarre le chrono.
-            (reset! sustain-state {:direction raw-direction :since-ms now}))
-        sustained? (and (not= raw-direction 0)
-                        (>= (- now (:since-ms @sustain-state)) sustain-duration-ms))
-        safe-cmd (if-not sustained?
-                   0.0
-                   (let [sign (if (neg? cmd) -1.0 1.0)
-                         scaled (+ command-floor
-                                   (* (- 1.0 command-floor)
-                                      (/ (- mag command-deadband)
-                                         (- 1.0 command-deadband))))]
-                     (* sign (min (max scaled command-floor) 1.0))))]
-    (v/update-value! "ap.pilot.basic.command" safe-cmd)
-    safe-cmd))
+        ;; Compute = somme ponderee input * gain (identique à self.Compute)
+        cmd (pilot/compute pilot-state gain-inputs)]
+    ;; On met a jour la valeur de commande pour le monitoring
+        (v/update-value! "ap.pilot.basic.command" cmd)
+        cmd))
+
