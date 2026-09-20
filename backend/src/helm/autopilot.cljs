@@ -28,7 +28,15 @@
          :last-enabled           false
          :pilot-armed            false
          :pilots                 {}
-         :initialized?           false}))
+         :initialized?             false
+         ;; ---- NOUVEAUX CHAMPS SERVO (windup / deadband) ----
+         :servo-windup             0.0
+         :servo-windup-change      0
+         :servo-last-speed         0.0
+         :servo-last-time          0.0
+         :servo-period             0.4
+         :servo-min-speed          0.05
+         :servo-max-speed          1.0}))
 
 ;; ---------------------------------------------------------------------------
 ;; Initialisation des valeurs serveur
