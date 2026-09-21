@@ -2,15 +2,34 @@
   (:require [helm.values :as v]))
 
 ;; ============================================================================
-;; Servo Motor Control — WiFi (ESP32 S3) or Serial (Arduino)
+;; Servo Motor Control — MQTT/WebSocket (ESP32 S3) or Serial (Arduino)
 ;; ============================================================================
+;;
+;; Le firmware ESP32-S3 du verin ecoute en MQTT (voir verin_controller_mqtt.py) :
+;;   - verin/cmd/motor    <- raw value [0, 1023], 511 = centre/stop
+;;   - verin/cmd/enabled  <- "true" / "false" (doit etre "true" pour que le
+;;                           verin reagisse aux commandes moteur - sinon le
+;;                           firmware applique hard_stop() en continu)
+;;   - verin/status       -> "ON" / "OFF" / "FAULT" (publie par l'ESP32)
+;;
+;; Un navigateur ne peut pas ouvrir de socket MQTT TCP brut (port 1883) :
+;; il faut du MQTT-over-WebSocket. Cote Mosquitto, ajouter un listener :
+;;   listener 9001
+;;   protocol websockets
+;; et charger la lib mqtt.js dans la page hote, ex. via CDN :
+;;   <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js"></script>
+;; (expose un global `mqtt` avec `mqtt.connect(wsUrl)`)
 
 (defonce state
-  (atom {:connected false
-         :last-speed 0
-         :neutral-zone-threshold 20
-         :mode nil
-         :url nil}))
+  (atom {:connected               false
+         :last-speed              0
+         :neutral-zone-threshold  20
+         :mode                    nil
+         :client                  nil
+         :ws-url                  nil
+         :motor-topic             "verin/cmd/motor"
+         :enabled-topic           "verin/cmd/enabled"
+         :status-topic            "verin/status"}))
 
 ;; ---------------------------------------------------------------------------
 ;; Registre des valeurs
@@ -18,23 +37,34 @@
 
 (defn register-values! []
   (v/range-property! "servo.command" 511 0 1023 :persistent? true)
-  (v/boolean-value! "servo.connected" false)
-  (v/string-value!  "servo.mode"      "unknown"))
+  (v/boolean-value!  "servo.connected" false)
+  (v/string-value!   "servo.mode"      "unknown")
+  (v/string-value!   "servo.esp32_status" "unknown"))
 
 (defn speed->normalized [speed]
   (let [raw (max 0 (min 1023 (double speed)))]
     (- (/ raw 511.5) 1.0)))
 
 ;; ---------------------------------------------------------------------------
-;; Mode WiFi (ESP32)
+;; Mode MQTT/WebSocket (ESP32)
 ;; ---------------------------------------------------------------------------
 
-(defn wifi:send-command!
-  "Envoie une commande normalisée cmd ∈ [-1, 1] à l'ESP32.
+(defn- publish! [topic payload]
+  (when-let [client (:client @state)]
+    (.publish client topic (str payload))))
+
+(defn mqtt:enable! []
+  (publish! (:enabled-topic @state) "true"))
+
+(defn mqtt:disable! []
+  (publish! (:enabled-topic @state) "false"))
+
+(defn mqtt:send-command!
+  "Envoie une commande normalisée cmd ∈ [-1, 1] au vérin via MQTT.
    Convertit en speed [0, 1023].
-   Comportement aligné sur la logique Python de référence : on ignore la zone neutre
+   Comportement aligné sur la logique de référence : on ignore la zone neutre
    autour de 511 ± 25 et on ne renvoie pas les valeurs dupliquées / micro-corrections."
-  [url cmd]
+  [cmd]
   (when (:connected @state)
     (let [clamped           (max -1.0 (min 1.0 (double cmd)))
           speed             (int (* (+ clamped 1.0) 511.5))
@@ -43,7 +73,7 @@
           neutral-threshold (:neutral-zone-threshold @state)]
       (cond
         (= last-speed speed)
-        (js/console.debug "[servo:wifi] Ignoring duplicate motor speed:" speed)
+        (js/console.debug "[servo:mqtt] Ignoring duplicate motor speed:" speed)
 
         ;; Le stop exact au centre (speed=511, ex: OFF ou reset-ap-output!) doit
         ;; TOUJOURS partir, meme si l'ecart au centre est sous le seuil de zone
@@ -51,40 +81,76 @@
         ;; et le moteur continue de tourner sur la derniere commande active
         ;; jusqu'au watchdog reseau de l'ESP32 (delai de plusieurs secondes).
         (and (< centered neutral-threshold) (not= speed 511))
-        (js/console.debug "[servo:wifi] Ignoring neutral micro-movement: raw=" speed "(centered=" centered ")")
+        (js/console.debug "[servo:mqtt] Ignoring neutral micro-movement: raw=" speed "(centered=" centered ")")
 
         :else
         (do
           (swap! state assoc :last-speed speed)
           (v/update-value! "servo.command" speed)
+          (publish! (:motor-topic @state) speed)
+          (js/console.log "[servo:mqtt] Motor speed:" speed))))))
 
-          (-> (js/fetch (str url "/motor/" speed))
-              (.then #(.text %))
-              (.then (fn [response]
-                       (js/console.log "[servo:wifi] Motor speed:" speed "→" response)))
-              (.catch (fn [e]
-                        (js/console.error "[servo:wifi] HTTP error:" (.-message e))))))))))
-
-(defn wifi:stop! []
+(defn mqtt:stop! []
   (when (:connected @state)
-    (wifi:send-command! (:url @state) 0)))
+    (mqtt:send-command! 0)
+    (mqtt:disable!)))
 
-(defn wifi:start! [url]
+(defn- handle-message [topic payload]
+  (let [topic-str (if (string? topic) topic (.toString topic))
+        msg       (.toString payload)]
+    (when (= topic-str (:status-topic @state))
+      (v/update-value! "servo.esp32_status" msg)
+      (when (= msg "FAULT")
+        (js/console.warn "[servo:mqtt] ESP32 reporte FAULT (surintensite/butee)")))))
+
+(defn mqtt:start! [ws-url & [{:keys [motor-topic enabled-topic status-topic]}]]
   (register-values!)
-  (swap! state assoc :url url)
+  (swap! state assoc
+         :ws-url ws-url
+         :motor-topic    (or motor-topic    (:motor-topic @state))
+         :enabled-topic  (or enabled-topic  (:enabled-topic @state))
+         :status-topic   (or status-topic   (:status-topic @state)))
 
-  (-> (js/fetch (str url "/motor/0"))
-      (.then #(.text %))
-      (.then (fn [response]
-               (js/console.log (str "[servo:wifi] Connecté → " url))
-               (swap! state assoc :connected true :mode :wifi)
-               (v/update-value! "servo.connected" true)
-               (v/update-value! "servo.mode" "wifi")))
-      (.catch (fn [e]
-                (js/console.error (str "[servo:wifi] Impossible de joindre " url ": " (.-message e)))
-                (swap! state assoc :connected false :mode nil)
-                (v/update-value! "servo.connected" false)
-                (v/update-value! "servo.mode" "offline")))))
+  (if-not (exists? js/mqtt)
+    (do
+      (js/console.error "[servo:mqtt] La lib mqtt.js n'est pas chargee (global `mqtt` introuvable)")
+      (swap! state assoc :connected false :mode nil)
+      (v/update-value! "servo.connected" false)
+      (v/update-value! "servo.mode" "offline"))
+    (let [client (.connect js/mqtt ws-url)]
+      (swap! state assoc :client client)
+
+      (.on client "connect"
+           (fn []
+             (js/console.log (str "[servo:mqtt] Connecté → " ws-url))
+             (swap! state assoc :connected true :mode :mqtt)
+             (v/update-value! "servo.connected" true)
+             (v/update-value! "servo.mode" "mqtt")
+             (.subscribe client (:status-topic @state))
+             (mqtt:enable!)
+             (mqtt:send-command! 0)))
+
+      (.on client "reconnect"
+           (fn []
+             (js/console.log "[servo:mqtt] Reconnexion en cours...")))
+
+      (.on client "close"
+           (fn []
+             (js/console.warn "[servo:mqtt] Connexion fermée")
+             (swap! state assoc :connected false)
+             (v/update-value! "servo.connected" false)
+             (v/update-value! "servo.mode" "offline")))
+
+      (.on client "error"
+           (fn [e]
+             (js/console.error "[servo:mqtt] Erreur:" (.-message e))
+             (swap! state assoc :connected false)
+             (v/update-value! "servo.connected" false)
+             (v/update-value! "servo.mode" "offline")))
+
+      (.on client "message"
+           (fn [topic payload]
+             (handle-message topic payload))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Mode Serial (Arduino) — Legacy support
@@ -103,7 +169,7 @@
 
 (defn send-command! [cmd]
   (case (:mode @state)
-    :wifi   (wifi:send-command! (:url @state) cmd)
+    :mqtt   (mqtt:send-command! cmd)
     :serial (serial:send-command! cmd)
     (js/console.warn "[servo] Not connected")))
 
@@ -114,7 +180,7 @@
 
 (defn stop-servo! []
   (case (:mode @state)
-    :wifi   (wifi:stop!)
+    :mqtt   (mqtt:stop!)
     :serial nil
     (js/console.warn "[servo] Not connected")))
 
@@ -128,16 +194,18 @@
   (let [servo-type (or (:type servo-cfg) :serial)]
 
     (case servo-type
-      :wifi
+      :mqtt
       (do
-        (js/console.log "[servo] Mode: WiFi (ESP32 S3)")
-        (wifi:start! (:url servo-cfg)))
+        (js/console.log "[servo] Mode: MQTT/WebSocket (ESP32 S3)")
+        (mqtt:start! (:ws-url servo-cfg) servo-cfg))
 
       (js/console.error "[servo] Unknown servo type:" servo-type))))
 
 (defn stop! []
   (stop-servo!)
-  (swap! state assoc :connected false :mode nil)
+  (when-let [client (:client @state)]
+    (.end client))
+  (swap! state assoc :connected false :mode nil :client nil)
   (v/update-value! "servo.connected" false))
 
 ;; ---------------------------------------------------------------------------
@@ -148,9 +216,8 @@
   @state)
 
 (defn test-speed! [speed]
-  (let [url (:url @state)]
-    (if (and (= :wifi (:mode @state)) url)
-      (-> (js/fetch (str url "/motor/" speed))
-          (.then #(.text %))
-          (.then #(js/console.log "[servo:test]" %)))
-      (js/console.warn "[servo] Not in WiFi mode or URL not set"))))
+  (if (and (= :mqtt (:mode @state)) (:connected @state))
+    (do
+      (publish! (:motor-topic @state) speed)
+      (js/console.log "[servo:test] Published speed" speed))
+    (js/console.warn "[servo] Not in MQTT mode or not connected")))
