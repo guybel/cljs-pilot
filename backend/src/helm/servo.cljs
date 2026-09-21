@@ -1,9 +1,15 @@
 (ns helm.servo
-  (:require [helm.values :as v]))
+  (:require [helm.values :as v]
+            ["mqtt" :as mqtt]))
 
 ;; ============================================================================
-;; Servo Motor Control — MQTT/WebSocket (ESP32 S3) or Serial (Arduino)
+;; Servo Motor Control — MQTT (ESP32 S3) or Serial (Arduino)
 ;; ============================================================================
+;;
+;; Backend Node.js (ClojureScript compile pour Node, pas pour le navigateur) :
+;; on parle MQTT en TCP brut directement sur le port 1883, pas besoin de
+;; WebSocket ni du paquet npm mqtt expose comme global `js/mqtt` - ici on
+;; requiert directement le module npm `mqtt` (a installer : `npm i mqtt`).
 ;;
 ;; Le firmware ESP32-S3 du verin ecoute en MQTT (voir verin_controller_mqtt.py) :
 ;;   - verin/cmd/motor    <- raw value [0, 1023], 511 = centre/stop
@@ -11,14 +17,6 @@
 ;;                           verin reagisse aux commandes moteur - sinon le
 ;;                           firmware applique hard_stop() en continu)
 ;;   - verin/status       -> "ON" / "OFF" / "FAULT" (publie par l'ESP32)
-;;
-;; Un navigateur ne peut pas ouvrir de socket MQTT TCP brut (port 1883) :
-;; il faut du MQTT-over-WebSocket. Cote Mosquitto, ajouter un listener :
-;;   listener 9001
-;;   protocol websockets
-;; et charger la lib mqtt.js dans la page hote, ex. via CDN :
-;;   <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js"></script>
-;; (expose un global `mqtt` avec `mqtt.connect(wsUrl)`)
 
 (defonce state
   (atom {:connected               false
@@ -26,7 +24,7 @@
          :neutral-zone-threshold  20
          :mode                    nil
          :client                  nil
-         :ws-url                  nil
+         :broker-url              nil
          :motor-topic             "verin/cmd/motor"
          :enabled-topic           "verin/cmd/enabled"
          :status-topic            "verin/status"}))
