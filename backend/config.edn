@@ -1,7 +1,7 @@
 {;; ============================================================
  ;; Pypilot Backend — Configuration
  ;; ============================================================
-
+ 
  ;; --- Serveur TCP ----------------------------------------
  ;; Port du protocole pypilot (clients, frontend)
  :server
@@ -15,7 +15,7 @@
  :imu
  {:source :boatimu   ; :boatimu | :signalk | :both
   :rate   20}        ; Hz
-
+ 
  ;; --- Signal K -------------------------------------------
  ;; Serveur Signal K avec GPS et accéléromètre
  :signalk
@@ -28,10 +28,10 @@
  ;; Motor control via WiFi (IBT-2 driver sur ESP32 S3)
  ;; API: GET http://192.168.42.10/motor/<speed>
  ;; speed ∈ [-1023, 1023] ; [-1, 1] normalisé en client
- :servo
- {:type :wifi           ; :wifi | :serial (ancien Arduino)
-  :url  "http://192.168.42.10"}  ; ESP32 S3 connected to Pi hotspot
-
+ 
+ :servo {:type :mqtt
+         :broker-url "mqtt://localhost:1883"}
+ 
  ;; --- Gains PID pilote "basic" ---------------------------
  ;; Valeurs initiales — modifiables en live via TCP
  ;; (ap.pilot.basic.P, .D, etc.) et persistées dans ~/.pypilot/pypilot.conf

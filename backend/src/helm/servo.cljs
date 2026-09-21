@@ -101,26 +101,21 @@
       (when (= msg "FAULT")
         (js/console.warn "[servo:mqtt] ESP32 reporte FAULT (surintensite/butee)")))))
 
-(defn mqtt:start! [ws-url & [{:keys [motor-topic enabled-topic status-topic]}]]
+(defn mqtt:start! [broker-url & [{:keys [motor-topic enabled-topic status-topic]}]]
   (register-values!)
   (swap! state assoc
-         :ws-url ws-url
+         :broker-url     broker-url
          :motor-topic    (or motor-topic    (:motor-topic @state))
          :enabled-topic  (or enabled-topic  (:enabled-topic @state))
          :status-topic   (or status-topic   (:status-topic @state)))
 
-  (if-not (exists? js/mqtt)
-    (do
-      (js/console.error "[servo:mqtt] La lib mqtt.js n'est pas chargee (global `mqtt` introuvable)")
-      (swap! state assoc :connected false :mode nil)
-      (v/update-value! "servo.connected" false)
-      (v/update-value! "servo.mode" "offline"))
-    (let [client (.connect js/mqtt ws-url)]
+  (try
+    (let [client (mqtt/connect broker-url)]
       (swap! state assoc :client client)
 
       (.on client "connect"
            (fn []
-             (js/console.log (str "[servo:mqtt] Connecté → " ws-url))
+             (js/console.log (str "[servo:mqtt] Connecté → " broker-url))
              (swap! state assoc :connected true :mode :mqtt)
              (v/update-value! "servo.connected" true)
              (v/update-value! "servo.mode" "mqtt")
@@ -148,7 +143,12 @@
 
       (.on client "message"
            (fn [topic payload]
-             (handle-message topic payload))))))
+             (handle-message topic payload))))
+    (catch js/Error e
+      (js/console.error "[servo:mqtt] Impossible de créer le client MQTT:" (.-message e))
+      (swap! state assoc :connected false :mode nil)
+      (v/update-value! "servo.connected" false)
+      (v/update-value! "servo.mode" "offline"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Mode Serial (Arduino) — Legacy support
@@ -194,8 +194,8 @@
     (case servo-type
       :mqtt
       (do
-        (js/console.log "[servo] Mode: MQTT/WebSocket (ESP32 S3)")
-        (mqtt:start! (:ws-url servo-cfg) servo-cfg))
+        (js/console.log "[servo] Mode: MQTT (ESP32 S3)")
+        (mqtt:start! (:broker-url servo-cfg) servo-cfg))
 
       (js/console.error "[servo] Unknown servo type:" servo-type))))
 
