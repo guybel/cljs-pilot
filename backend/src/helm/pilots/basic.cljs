@@ -7,7 +7,7 @@
 ;; Gains PID complets : P, I, D, DD, PR, FF
 
 (def ^:private gain-defaults
-  {:P 0.003 :I 0.0 :D 0.09 :DD 0.075 :PR 0.005 :FF 0.6})
+  {:P 0.03 :I 0.0 :D 0.09 :DD 0.075 :PR 0.005 :FF 0.6})
 
 ;; Etat de persistance pour l'hysteresis anti-bruit (voir process! plus bas).
 ;; Suit depuis combien de temps une erreur soutenue dans une direction donnee

@@ -16,7 +16,7 @@
 
 ;; Delai minimum entre deux inversions de sens du verin, pour eviter de
 ;; stresser mecaniquement l'actionneur sur des commandes qui oscillent vite.
-(def ^:private min-reversal-ms 150)
+(def ^:private min-reversal-ms 50)
 
 ;; ---------------------------------------------------------------------------
 ;; État interne (mutable via atom)
