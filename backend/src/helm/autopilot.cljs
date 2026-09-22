@@ -45,7 +45,7 @@
          :servo-windup-change      0
          :servo-last-speed         0.0
          :servo-last-time          0.0
-         :servo-min-pulse-ms       300   ; duree mini d'une poussee, pour laisser le temps au verin de vaincre la stiction et d'atteindre sa vitesse nominale
+         :servo-min-pulse-ms       500   ; duree mini d'une poussee, pour laisser le temps au verin de vaincre la stiction et d'atteindre sa vitesse nominale
          :servo-max-speed          1.0}))
 
 ;; ---------------------------------------------------------------------------
