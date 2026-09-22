@@ -33,18 +33,19 @@
          :pilot-armed             false
          :pilots                  {}
          :initialized?            false
-         ;; ---- CHAMPS SERVO (windup / deadband) ----
-         ;; Verin sans retour de position (2 fils, pas de potentiometre/encodeur).
-         ;; En dessous de :servo-min-speed, une commande continue est trop
-         ;; faible pour vaincre la stiction et ne fait rien bouger : on la
-         ;; convertit en impulsions a vitesse minimale via l'integrateur
-         ;; :servo-windup plutot que d'envoyer un signal inefficace.
+         ;; ---- CHAMPS SERVO (time-proportioning) ----
+         ;; Verin sans retour de position, tres lent (12 mm/s en pleine
+         ;; vitesse) : moduler l'amplitude du PWM revient a le rendre encore
+         ;; plus lent, contre-productif vu son debattement deja limite. On
+         ;; pousse donc TOUJOURS a servo-max-speed quand on bouge, et c'est
+         ;; la DUREE de la poussee (accumulee dans :servo-windup, en
+         ;; "secondes de poussee dues") qui code l'intensite de la commande
+         ;; du pilote - pas l'amplitude du PWM.
          :servo-windup             0.0
          :servo-windup-change      0
          :servo-last-speed         0.0
          :servo-last-time          0.0
-         :servo-period             0.4   ; fenetre d'integration de l'effort (s)
-         :servo-min-speed          0.05  ; A CALIBRER: vitesse mini qui bouge reellement le verin (voir test ESP32)
+         :servo-min-pulse-ms       300   ; duree mini d'une poussee, pour laisser le temps au verin de vaincre la stiction et d'atteindre sa vitesse nominale
          :servo-max-speed          1.0}))
 
 ;; ---------------------------------------------------------------------------
@@ -80,10 +81,9 @@
     ;; Valeur interne de commande du pilote sélectionné
     (v/sensor-value! "ap.pilot.basic.command" 0)
 
-    ;; Parametres du servo (verin sans retour de position) — reglables en live
-    (v/range-property! "ap.servo_min_speed" (:servo-min-speed @state) 0 1    :persistent? true)
-    (v/range-property! "ap.servo_max_speed" (:servo-max-speed @state) 0 1    :persistent? true)
-    (v/range-property! "ap.servo_period"    (:servo-period @state)    0.05 2 :persistent? true)
+    ;; Parametres du servo (verin sans retour de position, time-proportioning) — reglables en live
+    (v/range-property! "ap.servo_min_pulse_ms" (:servo-min-pulse-ms @state) 50 2000 :persistent? true)
+    (v/range-property! "ap.servo_max_speed"    (:servo-max-speed @state)    0 1    :persistent? true)
 
     ;; Initialiser les pilotes
     (let [basic-pilot (basic/init! gains)]
@@ -122,56 +122,61 @@
    now : timestamp ms (js/Date.now).
    Retourne la commande a envoyer a servo/send-command!.
 
-   - |cmd| >= servo-min-speed  -> envoi direct (mode continu), borne a servo-max-speed
-   - |cmd| <  servo-min-speed  -> accumulation dans servo-windup ; des que
-     l'effort accumule depasse (servo-min-speed * servo-period), une
-     impulsion courte a servo-min-speed est envoyee, sinon 0.
-   - Une garde anti-inversion rapide empeche de changer de sens plus
-     souvent que min-reversal-ms."
+   Time-proportioning : le verin est trop lent (12 mm/s max) pour qu'on se
+   permette de reduire sa vitesse via l'amplitude du PWM - toute poussee se
+   fait a servo-max-speed. L'intensite de cmd est codee dans la DUREE de la
+   poussee : on accumule 'cmd * dt' (secondes de poussee dues) dans
+   servo-windup, et des que l'accumulation depasse le temps minimal d'une
+   poussee (servo-min-pulse-ms - le temps pour vaincre la stiction et
+   atteindre la vitesse nominale), on declenche une poussee a pleine
+   vitesse d'au moins cette duree.
+   Une fois une poussee commencee, elle est maintenue au moins
+   servo-min-pulse-ms meme si cmd retombe en dessous entre-temps - sinon le
+   verin n'a jamais le temps de vraiment bouger.
+   Une garde anti-inversion rapide empeche de changer de sens plus souvent
+   que min-reversal-ms."
   [cmd now]
   (let [{:keys [servo-windup servo-last-time servo-last-speed
                 servo-windup-change]} @state
-        min-speed (v/get-value "ap.servo_min_speed")
-        max-speed (v/get-value "ap.servo_max_speed")
-        period    (v/get-value "ap.servo_period")
-        dt        (if (pos? servo-last-time)
-                    (min (/ (- now servo-last-time) 1000.0) period)
-                    0)
-        cmd       (minmax cmd max-speed)
-        windup    (+ servo-windup (* cmd dt))
-        threshold (* min-speed period)
-        raw-output (cond
-                     (>= (js/Math.abs cmd) min-speed)
-                     cmd
-
-                     (>= (js/Math.abs windup) threshold)
-                     (* min-speed (if (pos? windup) 1 -1))
-
-                     :else
-                     0)
-        reversing? (and (not= 0 raw-output)
-                        (not= 0 servo-last-speed)
-                        (not= (pos? raw-output) (pos? servo-last-speed)))
-        output     (if (and reversing?
-                            (< (- now servo-windup-change) min-reversal-ms))
-                     0
-                     raw-output)
-        windup'    (cond
-                     (>= (js/Math.abs cmd) min-speed)
-                     0
-
-                     (and (= output raw-output) (>= (js/Math.abs windup) threshold))
-                     (- windup (* threshold (if (pos? windup) 1 -1)))
-
-                     :else
-                     windup)
-        change-ms' (if reversing? now servo-windup-change)]
-    (swap! state assoc
-           :servo-windup        windup'
-           :servo-last-speed    output
-           :servo-last-time     now
-           :servo-windup-change change-ms')
-    output))
+        min-pulse-ms (v/get-value "ap.servo_min_pulse_ms")
+        max-speed    (v/get-value "ap.servo_max_speed")
+        dt           (if (pos? servo-last-time)
+                       (/ (- now servo-last-time) 1000.0)
+                       0)
+        cmd          (minmax cmd 1.0)
+        windup       (+ servo-windup (* cmd dt))
+        threshold    (/ min-pulse-ms 1000.0)
+        pulsing?     (and (not= 0 servo-last-speed)
+                          (< (- now servo-windup-change) min-pulse-ms))]
+    (if pulsing?
+      ;; Poussee en cours : on la maintient jusqu'a servo-min-pulse-ms,
+      ;; independamment de ce que dit cmd maintenant - eviter les poussees
+      ;; trop courtes pour deplacer physiquement le verin.
+      (do
+        (swap! state assoc :servo-windup windup :servo-last-time now)
+        servo-last-speed)
+      (let [raw-output (if (>= (js/Math.abs windup) threshold)
+                          (* max-speed (if (pos? windup) 1 -1))
+                          0)
+            reversing?  (and (not= 0 raw-output)
+                             (not= 0 servo-last-speed)
+                             (not= (pos? raw-output) (pos? servo-last-speed)))
+            output      (if (and reversing?
+                                 (< (- now servo-windup-change) min-reversal-ms))
+                          0
+                          raw-output)
+            windup'     (if (= output raw-output)
+                          (if (not= 0 output)
+                            (- windup (* threshold (if (pos? windup) 1 -1)))
+                            windup)
+                          windup)
+            change-ms'  (if (not= output servo-last-speed) now servo-windup-change)]
+        (swap! state assoc
+               :servo-windup        windup'
+               :servo-last-speed    output
+               :servo-last-time     now
+               :servo-windup-change change-ms')
+        output))))
 
 ;; ---------------------------------------------------------------------------
 ;; Reset d’un cycle AP
